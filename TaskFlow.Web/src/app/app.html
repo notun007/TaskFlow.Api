@@ -1,0 +1,33 @@
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">TF</span><span>TaskFlow</span></div>
+    <div class="workspace-label">WORKSPACE</div>
+    <nav>
+      @for (item of ['Dashboard', 'My Work', 'Projects', 'Software', 'Teams', 'Vendors', 'Reports', 'Audit Log']; track item) {
+        <button class="nav-item" [class.selected]="activeNav() === item" (click)="setNav(item)">
+          <span class="nav-icon">{{ item === 'Dashboard' ? '◈' : item === 'My Work' ? '◫' : item === 'Projects' ? '▤' : item === 'Software' ? '▣' : item === 'Teams' ? '◉' : item === 'Vendors' ? '◇' : item === 'Reports' ? '◒' : '◌' }}</span>{{ item }}
+        </button>
+      }
+    </nav>
+    <div class="sidebar-bottom"><div class="security"><span>●</span><div><strong>Bank secure</strong><small>Audit logging enabled</small></div></div><button class="help">? <span>Help & support</span></button></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">Operations <span>/</span> Work management</div>
+      <div class="top-actions"><label class="search"><span>⌕</span><input placeholder="Search tasks, projects..." [value]="search()" (input)="search.set($any($event.target).value)" /></label><button class="icon-button" aria-label="Notifications">♢<i></i></button><div class="avatar">SA</div></div>
+    </header>
+
+    <section class="content">
+      <div class="page-heading"><div><p class="eyebrow">TUESDAY, AUGUST 4, 2026</p><h1>Good morning, Sarah</h1><p class="subheading">Here is the work that needs your attention today.</p></div><button class="primary" (click)="showCreate.set(true)">＋ Create task</button></div>
+      <div class="stat-row"><div class="stat"><span>My open tasks</span><strong>24</strong><em class="green">↑ 8% <small>vs last week</small></em></div><div class="stat"><span>Due this week</span><strong>11</strong><em class="amber">3 critical <small>need attention</small></em></div><div class="stat"><span>Pending vendor</span><strong>06</strong><em class="blue">2 overdue <small>escalate today</small></em></div><div class="stat"><span>Awaiting approval</span><strong>04</strong><em class="purple">Review queue <small>is ready</small></em></div></div>
+
+      <div class="section-head"><div><h2>My work</h2><p>Tasks assigned to you or requiring your attention</p></div><div class="view-actions"><button class="view active">☷</button><button class="view">▦</button><button class="filter">Filter <span>⌄</span></button></div></div>
+      <div class="work-layout"><section class="task-panel"><div class="table-head"><span>Task</span><span>Project / software</span><span>Owner</span><span>Status</span><span>Priority</span><span>Due</span></div>@for (task of filteredTasks(); track task.id) {<div class="task-row"><div class="task-name"><span class="task-id">{{ task.id }}</span><strong>{{ task.title }}</strong><small>{{ task.severity }} severity</small></div><div class="project"><strong>{{ task.project }}</strong><small>{{ task.software }}</small></div><div class="owner"><span class="mini-avatar">{{ initials(task.owner) }}</span>{{ task.owner }}</div><div><span class="status" [class]="task.status.toLowerCase().replace(' ', '-')">{{ task.status }}</span></div><div><span class="priority" [class]="task.priority.toLowerCase()">{{ task.priority }}</span></div><div class="due" [class.overdue]="task.due === 'Today'">{{ task.due }}</div></div>} @empty {<div class="empty">No tasks match your search.</div>}<div class="table-footer">Showing {{ filteredTasks().length }} of 24 tasks <button>View all tasks →</button></div></section>
+        <aside class="activity"><div class="activity-head"><div><h2>Activity</h2><p>Recent changes across your work</p></div><button>•••</button></div><div class="activity-item"><span class="activity-dot blue-dot"></span><div><strong>Task status changed</strong><p><b>TF-2408</b> moved to In Progress</p><small>12 minutes ago · by you</small></div></div><div class="activity-item"><span class="activity-dot mint-dot"></span><div><strong>Comment added</strong><p>“UAT evidence attached for review”</p><small>48 minutes ago · TF-2389</small></div></div><div class="activity-item"><span class="activity-dot amber-dot"></span><div><strong>Vendor SLA alert</strong><p>Payment Gateway response overdue</p><small>2 hours ago · System alert</small></div></div><div class="activity-item"><span class="activity-dot purple-dot"></span><div><strong>Approval requested</strong><p>Regulatory report field mappings</p><small>Yesterday · TF-2404</small></div></div><button class="activity-link">View audit log →</button></aside>
+      </div>
+    </section>
+  </main>
+</div>
+
+@if (showCreate()) { <div class="modal-backdrop" (click)="showCreate.set(false)"><div class="modal" (click)="$event.stopPropagation()"><div class="modal-head"><div><p class="eyebrow">NEW WORK ITEM</p><h2>Create a task</h2></div><button (click)="showCreate.set(false)">×</button></div><label>Task title<input placeholder="What needs to be done?" /></label><label>Project<select><option>Internet Banking Upgrade</option><option>Regulatory Reporting</option></select></label><div class="modal-grid"><label>Type<select><option>Bug</option><option>Requirement</option><option>Change request</option></select></label><label>Priority<select><option>Medium</option><option>High</option><option>Critical</option></select></label></div><div class="modal-actions"><button class="secondary" (click)="showCreate.set(false)">Cancel</button><button class="primary" (click)="createTask()">Create task</button></div></div></div> }
