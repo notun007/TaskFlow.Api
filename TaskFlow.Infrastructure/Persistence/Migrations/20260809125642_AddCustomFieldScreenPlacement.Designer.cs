@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using TaskFlow.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TaskFlow.Infrastructure.Persistence;
 namespace TaskFlow.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TaskFlowDbContext))]
-    partial class TaskFlowDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809125642_AddCustomFieldScreenPlacement")]
+    partial class AddCustomFieldScreenPlacement
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -414,52 +417,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.ToTable("Projects", "TASKFLOW");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("ReleaseDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<DateTimeOffset?>("ReleasedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("StartDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("ProjectReleases", "TASKFLOW");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.SoftwareApplication", b =>
                 {
                     b.Property<Guid>("Id")
@@ -513,55 +470,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.ToTable("SoftwareApplications", "TASKFLOW");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.Sprint", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("EndDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<string>("Goal")
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("StartDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("Sprints", "TASKFLOW");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -596,50 +504,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.HasIndex("TaskItemId");
 
                     b.ToTable("TaskAssignments", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("BLOB");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<long>("Size")
-                        .HasColumnType("NUMBER(19)");
-
-                    b.Property<Guid>("TaskItemId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("UploadedBy")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TaskItemId", "CreatedAt");
-
-                    b.ToTable("TaskAttachments", "TASKFLOW");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskComment", b =>
@@ -733,9 +597,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<string>("ExpectedResult")
                         .HasColumnType("NVARCHAR2(2000)");
 
-                    b.Property<Guid?>("FixVersionId")
-                        .HasColumnType("RAW(16)");
-
                     b.Property<string>("Impact")
                         .HasColumnType("NVARCHAR2(2000)");
 
@@ -773,9 +634,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<string>("SourceReference")
                         .HasColumnType("NVARCHAR2(2000)");
 
-                    b.Property<Guid?>("SprintId")
-                        .HasColumnType("RAW(16)");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("NVARCHAR2(2000)");
@@ -800,53 +658,14 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FixVersionId");
-
                     b.HasIndex("ProjectId");
 
                     b.HasIndex("SoftwareApplicationId");
-
-                    b.HasIndex("SprintId");
 
                     b.HasIndex("TaskNumber")
                         .IsUnique();
 
                     b.ToTable("TASKS", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskLink", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<Guid>("SourceTaskId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<Guid>("TargetTaskId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TargetTaskId");
-
-                    b.HasIndex("SourceTaskId", "TargetTaskId", "Type")
-                        .IsUnique();
-
-                    b.ToTable("TaskLinks", "TASKFLOW");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskStatusHistory", b =>
@@ -1110,509 +929,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.WorkflowScheme", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<Guid?>("WorkItemTypeId")
-                        .HasColumnType("RAW(16)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WorkItemTypeId")
-                        .IsUnique()
-                        .HasFilter("\"WorkItemTypeId\" IS NOT NULL");
-
-                    b.ToTable("WorkflowSchemes", "TASKFLOW");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0000-000000000001"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDefault = true,
-                            IsDeleted = false,
-                            Name = "Default workflow"
-                        });
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.WorkflowTransition", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("FromStatus")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("NUMBER(10)");
-
-                    b.Property<string>("ToStatus")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<Guid>("WorkflowSchemeId")
-                        .HasColumnType("RAW(16)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WorkflowSchemeId", "FromStatus", "ToStatus")
-                        .IsUnique();
-
-                    b.ToTable("WorkflowTransitions", "TASKFLOW");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000001"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Draft",
-                            IsDeleted = false,
-                            SortOrder = 10,
-                            ToStatus = "Submitted",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000002"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Draft",
-                            IsDeleted = false,
-                            SortOrder = 20,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000003"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Submitted",
-                            IsDeleted = false,
-                            SortOrder = 30,
-                            ToStatus = "Triaged",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000004"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Submitted",
-                            IsDeleted = false,
-                            SortOrder = 40,
-                            ToStatus = "Rejected",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000005"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Submitted",
-                            IsDeleted = false,
-                            SortOrder = 50,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000006"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Triaged",
-                            IsDeleted = false,
-                            SortOrder = 60,
-                            ToStatus = "Approved",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000007"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Triaged",
-                            IsDeleted = false,
-                            SortOrder = 70,
-                            ToStatus = "PendingInformation",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000008"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Triaged",
-                            IsDeleted = false,
-                            SortOrder = 80,
-                            ToStatus = "Rejected",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000009"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Triaged",
-                            IsDeleted = false,
-                            SortOrder = 90,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000000a"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Approved",
-                            IsDeleted = false,
-                            SortOrder = 100,
-                            ToStatus = "Assigned",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000000b"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Approved",
-                            IsDeleted = false,
-                            SortOrder = 110,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000000c"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Assigned",
-                            IsDeleted = false,
-                            SortOrder = 120,
-                            ToStatus = "InProgress",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000000d"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Assigned",
-                            IsDeleted = false,
-                            SortOrder = 130,
-                            ToStatus = "PendingInformation",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000000e"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Assigned",
-                            IsDeleted = false,
-                            SortOrder = 140,
-                            ToStatus = "PendingVendor",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000000f"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Assigned",
-                            IsDeleted = false,
-                            SortOrder = 150,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000010"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "InProgress",
-                            IsDeleted = false,
-                            SortOrder = 160,
-                            ToStatus = "PendingInformation",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000011"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "InProgress",
-                            IsDeleted = false,
-                            SortOrder = 170,
-                            ToStatus = "PendingVendor",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000012"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "InProgress",
-                            IsDeleted = false,
-                            SortOrder = 180,
-                            ToStatus = "ReadyForTesting",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000013"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "InProgress",
-                            IsDeleted = false,
-                            SortOrder = 190,
-                            ToStatus = "Resolved",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000014"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "InProgress",
-                            IsDeleted = false,
-                            SortOrder = 200,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000015"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingInformation",
-                            IsDeleted = false,
-                            SortOrder = 210,
-                            ToStatus = "Triaged",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000016"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingInformation",
-                            IsDeleted = false,
-                            SortOrder = 220,
-                            ToStatus = "Assigned",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000017"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingInformation",
-                            IsDeleted = false,
-                            SortOrder = 230,
-                            ToStatus = "InProgress",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000018"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingInformation",
-                            IsDeleted = false,
-                            SortOrder = 240,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000019"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingVendor",
-                            IsDeleted = false,
-                            SortOrder = 250,
-                            ToStatus = "Assigned",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000001a"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingVendor",
-                            IsDeleted = false,
-                            SortOrder = 260,
-                            ToStatus = "InProgress",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000001b"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "PendingVendor",
-                            IsDeleted = false,
-                            SortOrder = 270,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000001c"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "ReadyForTesting",
-                            IsDeleted = false,
-                            SortOrder = 280,
-                            ToStatus = "Uat",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000001d"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "ReadyForTesting",
-                            IsDeleted = false,
-                            SortOrder = 290,
-                            ToStatus = "InProgress",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000001e"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "ReadyForTesting",
-                            IsDeleted = false,
-                            SortOrder = 300,
-                            ToStatus = "Reopened",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000001f"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Uat",
-                            IsDeleted = false,
-                            SortOrder = 310,
-                            ToStatus = "Resolved",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000020"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Uat",
-                            IsDeleted = false,
-                            SortOrder = 320,
-                            ToStatus = "InProgress",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000021"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Uat",
-                            IsDeleted = false,
-                            SortOrder = 330,
-                            ToStatus = "Reopened",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000022"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Resolved",
-                            IsDeleted = false,
-                            SortOrder = 340,
-                            ToStatus = "Closed",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000023"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Resolved",
-                            IsDeleted = false,
-                            SortOrder = 350,
-                            ToStatus = "Reopened",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000024"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Closed",
-                            IsDeleted = false,
-                            SortOrder = 360,
-                            ToStatus = "Reopened",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000025"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Rejected",
-                            IsDeleted = false,
-                            SortOrder = 370,
-                            ToStatus = "Reopened",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000026"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Cancelled",
-                            IsDeleted = false,
-                            SortOrder = 380,
-                            ToStatus = "Reopened",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000027"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Reopened",
-                            IsDeleted = false,
-                            SortOrder = 390,
-                            ToStatus = "Triaged",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000028"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Reopened",
-                            IsDeleted = false,
-                            SortOrder = 400,
-                            ToStatus = "Assigned",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-000000000029"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Reopened",
-                            IsDeleted = false,
-                            SortOrder = 410,
-                            ToStatus = "InProgress",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        },
-                        new
-                        {
-                            Id = new Guid("20000000-0000-0000-0001-00000000002a"),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 8, 9, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            FromStatus = "Reopened",
-                            IsDeleted = false,
-                            SortOrder = 420,
-                            ToStatus = "Cancelled",
-                            WorkflowSchemeId = new Guid("20000000-0000-0000-0000-000000000001")
-                        });
-                });
-
             modelBuilder.Entity("TaskFlow.Infrastructure.Identity.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1779,17 +1095,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("SoftwareApplication");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
-                        .WithMany("Releases")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.SoftwareApplication", b =>
                 {
                     b.HasOne("TaskFlow.Domain.Entities.Vendor", "Vendor")
@@ -1799,32 +1104,10 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("Vendor");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.Sprint", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
-                        .WithMany("Sprints")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAssignment", b =>
                 {
                     b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TaskItem")
                         .WithMany("Assignments")
-                        .HasForeignKey("TaskItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TaskItem");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAttachment", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TaskItem")
-                        .WithMany("Attachments")
                         .HasForeignKey("TaskItemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1864,10 +1147,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskItem", b =>
                 {
-                    b.HasOne("TaskFlow.Domain.Entities.ProjectRelease", "FixVersion")
-                        .WithMany("Tasks")
-                        .HasForeignKey("FixVersionId");
-
                     b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
                         .WithMany("Tasks")
                         .HasForeignKey("ProjectId")
@@ -1878,36 +1157,9 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SoftwareApplicationId");
 
-                    b.HasOne("TaskFlow.Domain.Entities.Sprint", "Sprint")
-                        .WithMany("Tasks")
-                        .HasForeignKey("SprintId");
-
-                    b.Navigation("FixVersion");
-
                     b.Navigation("Project");
 
                     b.Navigation("SoftwareApplication");
-
-                    b.Navigation("Sprint");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskLink", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "SourceTask")
-                        .WithMany("OutgoingLinks")
-                        .HasForeignKey("SourceTaskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TargetTask")
-                        .WithMany("IncomingLinks")
-                        .HasForeignKey("TargetTaskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("SourceTask");
-
-                    b.Navigation("TargetTask");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskStatusHistory", b =>
@@ -1932,26 +1184,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("Department");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.WorkflowScheme", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.WorkItemType", "WorkItemType")
-                        .WithMany()
-                        .HasForeignKey("WorkItemTypeId");
-
-                    b.Navigation("WorkItemType");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.WorkflowTransition", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.WorkflowScheme", "WorkflowScheme")
-                        .WithMany("Transitions")
-                        .HasForeignKey("WorkflowSchemeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("WorkflowScheme");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.CustomFieldDefinition", b =>
                 {
                     b.Navigation("Contexts");
@@ -1966,20 +1198,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.Project", b =>
                 {
-                    b.Navigation("Releases");
-
-                    b.Navigation("Sprints");
-
-                    b.Navigation("Tasks");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
-                {
-                    b.Navigation("Tasks");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.Sprint", b =>
-                {
                     b.Navigation("Tasks");
                 });
 
@@ -1987,22 +1205,11 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                 {
                     b.Navigation("Assignments");
 
-                    b.Navigation("Attachments");
-
                     b.Navigation("Comments");
 
                     b.Navigation("CustomFieldValues");
 
-                    b.Navigation("IncomingLinks");
-
-                    b.Navigation("OutgoingLinks");
-
                     b.Navigation("StatusHistory");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.WorkflowScheme", b =>
-                {
-                    b.Navigation("Transitions");
                 });
 #pragma warning restore 612, 618
         }

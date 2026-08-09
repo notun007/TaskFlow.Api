@@ -1,18 +1,29 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using TaskFlow.Application.Tasks;
+using TaskFlow.Application.Abstractions;
+using TaskFlow.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using TaskFlow.Domain.Enums;
 using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Api.Controllers;
 
 public sealed record AddTaskCommentRequest(string Body);
+public sealed record ChangeTaskStatusRequest(WorkflowStatus Status, string? Comment);
 
 [ApiController]
 [Route("api/tasks")]
 [Authorize]
-public sealed class TasksController(ITaskService service) : ControllerBase
+public sealed class TasksController(ITaskService service, IApplicationDbContext db) : ControllerBase
 {
+    private const long MaxAttachmentSize = 10 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedAttachmentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf", "image/png", "image/jpeg", "image/gif", "text/plain", "text/csv",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    };
     [HttpGet]
     public async Task<ActionResult<PagedResult<TaskListItem>>> List(
         [FromQuery] string? search,
@@ -33,6 +44,7 @@ public sealed class TasksController(ITaskService service) : ControllerBase
     public async Task<ActionResult> Create(CreateTaskRequest request, CancellationToken cancellationToken)
     {
         var task = await service.CreateAsync(request, User.Identity?.Name ?? "system", cancellationToken);
+        if (task is null) return BadRequest(new { message = "A title and active work item type are required." });
         return CreatedAtAction(nameof(Get), new { id = task.Id }, task);
     }
 
@@ -41,7 +53,16 @@ public sealed class TasksController(ITaskService service) : ControllerBase
         (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", cancellationToken)) is { } task ? Ok(task) : NotFound();
 
     [HttpPatch("{id:guid}/status")]
-    public async Task<IActionResult> ChangeStatus(Guid id, [FromBody] WorkflowStatus status, CancellationToken cancellationToken) => await service.ChangeStatusAsync(id, status, User.Identity?.Name ?? "system", cancellationToken) ? NoContent() : NotFound();
+    public async Task<ActionResult<TaskDetails>> ChangeStatus(Guid id, ChangeTaskStatusRequest request, CancellationToken cancellationToken)
+    {
+        var result = await service.ChangeStatusAsync(id, request.Status, request.Comment, User.Identity?.Name ?? "system", cancellationToken);
+        return result.Outcome switch
+        {
+            TaskStatusChangeOutcome.Changed => Ok(result.Task),
+            TaskStatusChangeOutcome.NotFound => NotFound(),
+            _ => Conflict(new { message = "This workflow transition is not allowed.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions })
+        };
+    }
 
     [HttpPost("{id:guid}/comments")]
     public async Task<ActionResult<TaskCommentItem>> AddComment(Guid id, AddTaskCommentRequest request, CancellationToken cancellationToken)
@@ -60,4 +81,45 @@ public sealed class TasksController(ITaskService service) : ControllerBase
     [HttpDelete("{id:guid}/assignments/{assignmentId:guid}")]
     public async Task<IActionResult> RemoveAssignment(Guid id, Guid assignmentId, CancellationToken cancellationToken) =>
         await service.RemoveAssignmentAsync(id, assignmentId, User.Identity?.Name ?? "system", cancellationToken) ? NoContent() : NotFound();
+
+    [HttpPost("{id:guid}/links")]
+    public async Task<ActionResult<TaskLinkItem>> AddLink(Guid id, AddTaskLinkRequest request, CancellationToken cancellationToken)
+    {
+        var link = await service.AddLinkAsync(id, request, User.Identity?.Name ?? "system", cancellationToken);
+        return link is null ? BadRequest(new { message = "Use a valid different task reference. A child can only have one parent." }) : Ok(link);
+    }
+
+    [HttpDelete("{id:guid}/links/{linkId:guid}")]
+    public async Task<IActionResult> RemoveLink(Guid id, Guid linkId, CancellationToken cancellationToken) =>
+        await service.RemoveLinkAsync(id, linkId, User.Identity?.Name ?? "system", cancellationToken) ? NoContent() : NotFound();
+
+    [HttpPost("{id:guid}/attachments")]
+    [RequestSizeLimit(11_000_000)]
+    public async Task<ActionResult<TaskAttachmentItem>> UploadAttachment(Guid id, IFormFile file, CancellationToken cancellationToken)
+    {
+        if (!await db.Tasks.AnyAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)) return NotFound();
+        if (file.Length <= 0 || file.Length > MaxAttachmentSize) return BadRequest(new { message = "Attachment size must be between 1 byte and 10 MB." });
+        if (!AllowedAttachmentTypes.Contains(file.ContentType)) return BadRequest(new { message = "This file type is not allowed. Use PDF, image, text, CSV, Word, or Excel files." });
+        var fileName = Path.GetFileName(file.FileName).Trim();
+        if (string.IsNullOrWhiteSpace(fileName)) return BadRequest(new { message = "A valid file name is required." });
+        if (fileName.Length > 180) fileName = fileName[..180];
+        await using var stream = new MemoryStream(); await file.CopyToAsync(stream, cancellationToken);
+        var attachment = new TaskAttachment { TaskItemId = id, FileName = fileName, ContentType = file.ContentType, Size = file.Length, Content = stream.ToArray(), UploadedBy = User.Identity?.Name ?? "system" };
+        db.TaskAttachments.Add(attachment); db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "AttachmentAdded", ActorReference = attachment.UploadedBy, ChangesJson = System.Text.Json.JsonSerializer.Serialize(new { attachment.FileName, attachment.Size }) }); await db.SaveChangesAsync(cancellationToken);
+        return Ok(new TaskAttachmentItem(attachment.Id, attachment.FileName, attachment.ContentType, attachment.Size, attachment.UploadedBy, attachment.CreatedAt));
+    }
+
+    [HttpGet("{id:guid}/attachments/{attachmentId:guid}")]
+    public async Task<IActionResult> DownloadAttachment(Guid id, Guid attachmentId, CancellationToken cancellationToken)
+    {
+        var attachment = await db.TaskAttachments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == attachmentId && x.TaskItemId == id && !x.IsDeleted, cancellationToken);
+        return attachment is null ? NotFound() : File(attachment.Content, attachment.ContentType, attachment.FileName);
+    }
+
+    [HttpDelete("{id:guid}/attachments/{attachmentId:guid}")]
+    public async Task<IActionResult> DeleteAttachment(Guid id, Guid attachmentId, CancellationToken cancellationToken)
+    {
+        var attachment = await db.TaskAttachments.FirstOrDefaultAsync(x => x.Id == attachmentId && x.TaskItemId == id && !x.IsDeleted, cancellationToken); if (attachment is null) return NotFound();
+        attachment.IsDeleted = true; db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "AttachmentRemoved", ActorReference = User.Identity?.Name ?? "system", ChangesJson = System.Text.Json.JsonSerializer.Serialize(new { attachment.FileName }) }); await db.SaveChangesAsync(cancellationToken); return NoContent();
+    }
 }

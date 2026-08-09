@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using TaskFlow.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TaskFlow.Infrastructure.Persistence;
 namespace TaskFlow.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TaskFlowDbContext))]
-    partial class TaskFlowDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809133947_AddReleaseManagement")]
+    partial class AddReleaseManagement
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -596,50 +599,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.HasIndex("TaskItemId");
 
                     b.ToTable("TaskAssignments", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("BLOB");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<long>("Size")
-                        .HasColumnType("NUMBER(19)");
-
-                    b.Property<Guid>("TaskItemId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("UploadedBy")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TaskItemId", "CreatedAt");
-
-                    b.ToTable("TaskAttachments", "TASKFLOW");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskComment", b =>
@@ -1821,17 +1780,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("TaskItem");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAttachment", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TaskItem")
-                        .WithMany("Attachments")
-                        .HasForeignKey("TaskItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TaskItem");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskComment", b =>
                 {
                     b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TaskItem")
@@ -1986,8 +1934,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskItem", b =>
                 {
                     b.Navigation("Assignments");
-
-                    b.Navigation("Attachments");
 
                     b.Navigation("Comments");
 

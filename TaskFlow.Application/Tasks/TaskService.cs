@@ -1,24 +1,34 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using TaskFlow.Application.Abstractions;
 using TaskFlow.Domain.Entities;
 using TaskFlow.Domain.Enums;
+using TaskFlow.Domain.Workflow;
 using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Application.Tasks;
 
-public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, TaskType Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName);
+public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName);
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
-public sealed record CreateTaskRequest(string Title, string? Description, TaskType Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate);
-public sealed record UpdateTaskRequest(string Title, string? Description, TaskType Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate);
+public sealed record SaveTaskCustomFieldValueRequest(Guid CustomFieldDefinitionId, string? Value);
+public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
+public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
 public sealed record AddTaskAssignmentRequest(ResponsibilityType Responsibility, string PartyReference, string? DisplayName);
 public sealed record TaskAssignmentItem(Guid Id, ResponsibilityType Responsibility, string PartyReference, string? DisplayName);
 public sealed record TaskCommentItem(Guid Id, string AuthorReference, string Body, DateTimeOffset CreatedAt);
+public sealed record TaskStatusHistoryItem(Guid Id, WorkflowStatus FromStatus, WorkflowStatus ToStatus, string ActorReference, string? Comment, DateTimeOffset CreatedAt);
+public sealed record TaskCustomFieldValueItem(Guid CustomFieldDefinitionId, string Key, string Name, string Type, string? Value, IReadOnlyList<string> DisplayValues);
+public sealed record AddTaskLinkRequest(TaskLinkType Type, string TargetTaskReference);
+public sealed record TaskLinkItem(Guid Id, TaskLinkType Type, bool IsOutgoing, Guid OtherTaskId, string OtherTaskNumber, string OtherTaskTitle, WorkflowStatus OtherTaskStatus);
+public sealed record TaskAttachmentItem(Guid Id, string FileName, string ContentType, long Size, string UploadedBy, DateTimeOffset CreatedAt);
+public enum TaskStatusChangeOutcome { Changed, NotFound, InvalidTransition }
+public sealed record TaskStatusChangeResult(TaskStatusChangeOutcome Outcome, TaskDetails? Task, IReadOnlyList<WorkflowStatus> AllowedTransitions);
 public sealed record TaskDetails(
     Guid Id,
     string TaskNumber,
     string Title,
     string? Description,
-    TaskType Type,
+    string Type,
     WorkflowStatus Status,
     Priority Priority,
     Severity? Severity,
@@ -27,6 +37,11 @@ public sealed record TaskDetails(
     DateTimeOffset? DueDate,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
+    IReadOnlyList<WorkflowStatus> AllowedTransitions,
+    IReadOnlyList<TaskStatusHistoryItem> StatusHistory,
+    IReadOnlyList<TaskCustomFieldValueItem> CustomFields,
+    IReadOnlyList<TaskLinkItem> Links,
+    IReadOnlyList<TaskAttachmentItem> Attachments,
     IReadOnlyList<TaskAssignmentItem> Assignments,
     IReadOnlyList<TaskCommentItem> Comments);
 
@@ -34,12 +49,14 @@ public interface ITaskService
 {
     Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken);
     Task<TaskDetails?> GetAsync(Guid id, CancellationToken cancellationToken);
-    Task<TaskItem> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken);
+    Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken);
     Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, CancellationToken cancellationToken);
-    Task<bool> ChangeStatusAsync(Guid id, WorkflowStatus status, string actor, CancellationToken cancellationToken);
+    Task<TaskStatusChangeResult> ChangeStatusAsync(Guid id, WorkflowStatus status, string? comment, string actor, CancellationToken cancellationToken);
     Task<TaskCommentItem?> AddCommentAsync(Guid id, string body, string actor, CancellationToken cancellationToken);
     Task<TaskAssignmentItem?> AddAssignmentAsync(Guid id, AddTaskAssignmentRequest request, string actor, CancellationToken cancellationToken);
     Task<bool> RemoveAssignmentAsync(Guid id, Guid assignmentId, string actor, CancellationToken cancellationToken);
+    Task<TaskLinkItem?> AddLinkAsync(Guid id, AddTaskLinkRequest request, string actor, CancellationToken cancellationToken);
+    Task<bool> RemoveLinkAsync(Guid id, Guid linkId, string actor, CancellationToken cancellationToken);
 }
 
 public sealed class TaskService(IApplicationDbContext db) : ITaskService
@@ -79,8 +96,14 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             .Include(x => x.Project)
             .Include(x => x.Assignments)
             .Include(x => x.Comments)
+            .Include(x => x.StatusHistory)
+            .Include(x => x.CustomFieldValues).ThenInclude(x => x.CustomFieldDefinition).ThenInclude(x => x.Options)
+            .Include(x => x.CustomFieldValues).ThenInclude(x => x.CustomFieldDefinition).ThenInclude(x => x.Contexts).ThenInclude(x => x.WorkItemType)
+            .Include(x => x.OutgoingLinks).ThenInclude(x => x.TargetTask)
+            .Include(x => x.IncomingLinks).ThenInclude(x => x.SourceTask)
             .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
         if (task is null) return null;
+        var attachments = await db.TaskAttachments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).OrderByDescending(x => x.CreatedAt).Select(x => new TaskAttachmentItem(x.Id, x.FileName, x.ContentType, x.Size, x.UploadedBy, x.CreatedAt)).ToArrayAsync(cancellationToken);
 
         return new TaskDetails(
             task.Id,
@@ -96,14 +119,25 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             task.DueDate,
             task.CreatedAt,
             task.UpdatedAt,
+            await AllowedTransitionsAsync(task.Type, task.Status, cancellationToken),
+            task.StatusHistory.OrderByDescending(x => x.CreatedAt).Select(x => new TaskStatusHistoryItem(x.Id, x.FromStatus, x.ToStatus, x.ActorReference, x.Comment, x.CreatedAt)).ToArray(),
+            task.CustomFieldValues.Where(x => !x.IsDeleted && x.CustomFieldDefinition.Contexts.Any(c => !c.IsDeleted && c.ShowOnDetails && (c.WorkItemTypeId == null || c.WorkItemType!.Key == task.Type))).OrderBy(x => x.CustomFieldDefinition.SortOrder).Select(x => new TaskCustomFieldValueItem(x.CustomFieldDefinitionId, x.CustomFieldDefinition.Key, x.CustomFieldDefinition.Name, x.CustomFieldDefinition.Type.ToString(), x.Value, DisplayValues(x))).ToArray(),
+            task.OutgoingLinks.Where(x => !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, true, x.TargetTaskId, x.TargetTask.TaskNumber, x.TargetTask.Title, x.TargetTask.Status))
+                .Concat(task.IncomingLinks.Where(x => !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, false, x.SourceTaskId, x.SourceTask.TaskNumber, x.SourceTask.Title, x.SourceTask.Status))).ToArray(),
+            attachments,
             task.Assignments.Where(x => !x.IsDeleted).Select(x => new TaskAssignmentItem(x.Id, x.Responsibility, x.PartyReference, x.DisplayName)).ToArray(),
             task.Comments.OrderBy(x => x.CreatedAt).Select(x => new TaskCommentItem(x.Id, x.AuthorReference, x.Body, x.CreatedAt)).ToArray());
     }
 
-    public async Task<TaskItem> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken)
+    public async Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken)
     {
-        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmss}", Title = request.Title, Description = request.Description, Type = request.Type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, Status = WorkflowStatus.Submitted };
+        var type = request.Type.Trim();
+        if (string.IsNullOrWhiteSpace(request.Title) || !await db.WorkItemTypes.AnyAsync(item => !item.IsDeleted && item.IsActive && item.Key == type, cancellationToken)) return null;
+        var fields = await ApplicableFields(type, cancellationToken);
+        if (!ValidateCustomFields(fields, request.CustomFields, true)) return null;
+        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, Status = WorkflowStatus.Submitted };
         db.Tasks.Add(task);
+        SyncCustomFields(task, fields, request.CustomFields, true);
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = task.Id.ToString(), Action = "Created", ActorReference = actor });
         await db.SaveChangesAsync(cancellationToken);
         return task;
@@ -111,29 +145,41 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
 
     public async Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, CancellationToken cancellationToken)
     {
-        var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+        var task = await db.Tasks.Include(x => x.CustomFieldValues).FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
         if (task is null || string.IsNullOrWhiteSpace(request.Title)) return null;
+        var type = request.Type.Trim();
+        if (!await db.WorkItemTypes.AnyAsync(item => !item.IsDeleted && item.IsActive && item.Key == type, cancellationToken)) return null;
+        var fields = await ApplicableFields(type, cancellationToken);
+        if (!ValidateCustomFields(fields, request.CustomFields, false)) return null;
         task.Title = request.Title.Trim();
         task.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
-        task.Type = request.Type;
+        task.Type = type;
         task.Priority = request.Priority;
         task.Severity = request.Severity;
         task.ProjectId = request.ProjectId;
         task.SoftwareApplicationId = request.SoftwareApplicationId;
         task.DueDate = request.DueDate;
+        SyncCustomFields(task, fields, request.CustomFields, false);
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "Updated", ActorReference = actor });
         await db.SaveChangesAsync(cancellationToken);
         return await GetAsync(id, cancellationToken);
     }
 
-    public async Task<bool> ChangeStatusAsync(Guid id, WorkflowStatus status, string actor, CancellationToken cancellationToken)
+    public async Task<TaskStatusChangeResult> ChangeStatusAsync(Guid id, WorkflowStatus status, string? comment, string actor, CancellationToken cancellationToken)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
-        if (task is null) return false;
+        if (task is null) return new(TaskStatusChangeOutcome.NotFound, null, []);
+        var allowed = await AllowedTransitionsAsync(task.Type, task.Status, cancellationToken);
+        if (!allowed.Contains(status))
+            return new(TaskStatusChangeOutcome.InvalidTransition, null, allowed);
+        var fromStatus = task.Status;
+        var transitionComment = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
+        if (transitionComment?.Length > 2000) transitionComment = transitionComment[..2000];
         task.Status = status; task.UpdatedAt = DateTimeOffset.UtcNow;
-        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"StatusChanged:{status}", ActorReference = actor });
+        db.TaskStatusHistory.Add(new TaskStatusHistory { TaskItemId = id, FromStatus = fromStatus, ToStatus = status, ActorReference = actor, Comment = transitionComment });
+        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"StatusChanged:{status}", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { fromStatus, toStatus = status, comment = transitionComment }) });
         await db.SaveChangesAsync(cancellationToken);
-        return true;
+        return new(TaskStatusChangeOutcome.Changed, await GetAsync(id, cancellationToken), await AllowedTransitionsAsync(task.Type, status, cancellationToken));
     }
 
     public async Task<TaskCommentItem?> AddCommentAsync(Guid id, string body, string actor, CancellationToken cancellationToken)
@@ -167,5 +213,91 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"AssignmentRemoved:{assignment.Responsibility}", ActorReference = actor });
         await db.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    public async Task<TaskLinkItem?> AddLinkAsync(Guid id, AddTaskLinkRequest request, string actor, CancellationToken cancellationToken)
+    {
+        var reference = request.TargetTaskReference.Trim();
+        var source = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+        var target = await db.Tasks.FirstOrDefaultAsync(x => !x.IsDeleted && (x.TaskNumber == reference || x.Id.ToString() == reference), cancellationToken);
+        if (source is null || target is null || source.Id == target.Id) return null;
+        var existing = await db.TaskLinks.FirstOrDefaultAsync(x => x.SourceTaskId == source.Id && x.TargetTaskId == target.Id && x.Type == request.Type && !x.IsDeleted, cancellationToken);
+        if (existing is not null) return new(existing.Id, existing.Type, true, target.Id, target.TaskNumber, target.Title, target.Status);
+        if (request.Type == TaskLinkType.ParentOf && await db.TaskLinks.AnyAsync(x => x.TargetTaskId == target.Id && x.Type == TaskLinkType.ParentOf && !x.IsDeleted, cancellationToken)) return null;
+        var link = new TaskLink { SourceTaskId = source.Id, TargetTaskId = target.Id, Type = request.Type };
+        db.TaskLinks.Add(link);
+        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"LinkAdded:{request.Type}", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { target.Id, target.TaskNumber }) });
+        await db.SaveChangesAsync(cancellationToken);
+        return new(link.Id, link.Type, true, target.Id, target.TaskNumber, target.Title, target.Status);
+    }
+
+    public async Task<bool> RemoveLinkAsync(Guid id, Guid linkId, string actor, CancellationToken cancellationToken)
+    {
+        var link = await db.TaskLinks.FirstOrDefaultAsync(x => x.Id == linkId && (x.SourceTaskId == id || x.TargetTaskId == id) && !x.IsDeleted, cancellationToken);
+        if (link is null) return false;
+        link.IsDeleted = true;
+        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"LinkRemoved:{link.Type}", ActorReference = actor });
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private async Task<List<CustomFieldDefinition>> ApplicableFields(string typeKey, CancellationToken cancellationToken)
+    {
+        var typeId = await db.WorkItemTypes.Where(x => x.Key == typeKey && x.IsActive).Select(x => x.Id).SingleAsync(cancellationToken);
+        return await db.CustomFieldDefinitions.Include(x => x.Options).Include(x => x.Contexts)
+            .Where(x => x.IsActive && x.Contexts.Any(c => !c.IsDeleted && (c.WorkItemTypeId == null || c.WorkItemTypeId == typeId)))
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<WorkflowStatus>> AllowedTransitionsAsync(string typeKey, WorkflowStatus current, CancellationToken cancellationToken)
+    {
+        var workItemTypeId = await db.WorkItemTypes.Where(x => x.Key == typeKey).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken);
+        var schemeId = await db.WorkflowSchemes.Where(x => x.WorkItemTypeId == workItemTypeId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
+            ?? await db.WorkflowSchemes.Where(x => x.IsDefault).Select(x => (Guid?)x.Id).SingleAsync(cancellationToken);
+        return await db.WorkflowTransitions.AsNoTracking().Where(x => x.WorkflowSchemeId == schemeId && x.FromStatus == current)
+            .OrderBy(x => x.SortOrder).Select(x => x.ToStatus).ToListAsync(cancellationToken);
+    }
+
+    private static bool ValidateCustomFields(IReadOnlyList<CustomFieldDefinition> fields, IReadOnlyList<SaveTaskCustomFieldValueRequest>? requests, bool createScreen)
+    {
+        requests ??= [];
+        if (requests.GroupBy(x => x.CustomFieldDefinitionId).Any(x => x.Count() > 1)) return false;
+        if (requests.Any(x => fields.All(f => f.Id != x.CustomFieldDefinitionId))) return false;
+        foreach (var field in fields)
+        {
+            var request = requests.FirstOrDefault(x => x.CustomFieldDefinitionId == field.Id);
+            var value = request?.Value?.Trim();
+            var context = field.Contexts.First(c => !c.IsDeleted);
+            var appearsOnScreen = createScreen ? context.ShowOnCreate : context.ShowOnEdit;
+            if (appearsOnScreen && context.IsRequired && string.IsNullOrWhiteSpace(value)) return false;
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            if (!CustomFieldValueValidator.IsValid(field, value)) return false;
+        }
+        return true;
+    }
+
+    private static void SyncCustomFields(TaskItem task, IReadOnlyList<CustomFieldDefinition> fields, IReadOnlyList<SaveTaskCustomFieldValueRequest>? requests, bool createScreen)
+    {
+        requests ??= [];
+        foreach (var field in fields)
+        {
+            var context = field.Contexts.First(x => !x.IsDeleted);
+            if (!(createScreen ? context.ShowOnCreate : context.ShowOnEdit)) continue;
+            var value = requests.FirstOrDefault(x => x.CustomFieldDefinitionId == field.Id)?.Value?.Trim();
+            if (createScreen && string.IsNullOrWhiteSpace(value)) value = context.DefaultValue;
+            var existing = task.CustomFieldValues.FirstOrDefault(x => x.CustomFieldDefinitionId == field.Id);
+            if (string.IsNullOrWhiteSpace(value)) { if (existing is not null) existing.IsDeleted = true; continue; }
+            if (existing is null) task.CustomFieldValues.Add(new TaskCustomFieldValue { CustomFieldDefinitionId = field.Id, Value = value });
+            else { existing.Value = value; existing.IsDeleted = false; }
+        }
+    }
+
+    private static IReadOnlyList<string> DisplayValues(TaskCustomFieldValue value)
+    {
+        if (string.IsNullOrWhiteSpace(value.Value)) return [];
+        var values = value.CustomFieldDefinition.Type == CustomFieldType.MultiSelect
+            ? JsonSerializer.Deserialize<string[]>(value.Value) ?? [] : [value.Value];
+        var labels = value.CustomFieldDefinition.Options.Where(x => !x.IsDeleted).ToDictionary(x => x.Value, x => x.Label, StringComparer.OrdinalIgnoreCase);
+        return values.Select(x => labels.GetValueOrDefault(x, x)).ToArray();
     }
 }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using TaskFlow.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TaskFlow.Infrastructure.Persistence;
 namespace TaskFlow.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TaskFlowDbContext))]
-    partial class TaskFlowDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809130704_AddConfigurableWorkflows")]
+    partial class AddConfigurableWorkflows
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -414,52 +417,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.ToTable("Projects", "TASKFLOW");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("ReleaseDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<DateTimeOffset?>("ReleasedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("StartDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("ProjectReleases", "TASKFLOW");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.SoftwareApplication", b =>
                 {
                     b.Property<Guid>("Id")
@@ -513,55 +470,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.ToTable("SoftwareApplications", "TASKFLOW");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.Sprint", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("EndDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<string>("Goal")
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("StartDate")
-                        .HasColumnType("NVARCHAR2(10)");
-
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("Sprints", "TASKFLOW");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -596,50 +504,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.HasIndex("TaskItemId");
 
                     b.ToTable("TaskAssignments", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("BLOB");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<long>("Size")
-                        .HasColumnType("NUMBER(19)");
-
-                    b.Property<Guid>("TaskItemId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<string>("UploadedBy")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TaskItemId", "CreatedAt");
-
-                    b.ToTable("TaskAttachments", "TASKFLOW");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskComment", b =>
@@ -733,9 +597,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<string>("ExpectedResult")
                         .HasColumnType("NVARCHAR2(2000)");
 
-                    b.Property<Guid?>("FixVersionId")
-                        .HasColumnType("RAW(16)");
-
                     b.Property<string>("Impact")
                         .HasColumnType("NVARCHAR2(2000)");
 
@@ -773,9 +634,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<string>("SourceReference")
                         .HasColumnType("NVARCHAR2(2000)");
 
-                    b.Property<Guid?>("SprintId")
-                        .HasColumnType("RAW(16)");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("NVARCHAR2(2000)");
@@ -800,53 +658,14 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FixVersionId");
-
                     b.HasIndex("ProjectId");
 
                     b.HasIndex("SoftwareApplicationId");
-
-                    b.HasIndex("SprintId");
 
                     b.HasIndex("TaskNumber")
                         .IsUnique();
 
                     b.ToTable("TASKS", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskLink", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<Guid>("SourceTaskId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<Guid>("TargetTaskId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TargetTaskId");
-
-                    b.HasIndex("SourceTaskId", "TargetTaskId", "Type")
-                        .IsUnique();
-
-                    b.ToTable("TaskLinks", "TASKFLOW");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskStatusHistory", b =>
@@ -1779,17 +1598,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("SoftwareApplication");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
-                        .WithMany("Releases")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.SoftwareApplication", b =>
                 {
                     b.HasOne("TaskFlow.Domain.Entities.Vendor", "Vendor")
@@ -1799,32 +1607,10 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("Vendor");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.Sprint", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
-                        .WithMany("Sprints")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAssignment", b =>
                 {
                     b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TaskItem")
                         .WithMany("Assignments")
-                        .HasForeignKey("TaskItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TaskItem");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskAttachment", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TaskItem")
-                        .WithMany("Attachments")
                         .HasForeignKey("TaskItemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1864,10 +1650,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskItem", b =>
                 {
-                    b.HasOne("TaskFlow.Domain.Entities.ProjectRelease", "FixVersion")
-                        .WithMany("Tasks")
-                        .HasForeignKey("FixVersionId");
-
                     b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
                         .WithMany("Tasks")
                         .HasForeignKey("ProjectId")
@@ -1878,36 +1660,9 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SoftwareApplicationId");
 
-                    b.HasOne("TaskFlow.Domain.Entities.Sprint", "Sprint")
-                        .WithMany("Tasks")
-                        .HasForeignKey("SprintId");
-
-                    b.Navigation("FixVersion");
-
                     b.Navigation("Project");
 
                     b.Navigation("SoftwareApplication");
-
-                    b.Navigation("Sprint");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.TaskLink", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "SourceTask")
-                        .WithMany("OutgoingLinks")
-                        .HasForeignKey("SourceTaskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "TargetTask")
-                        .WithMany("IncomingLinks")
-                        .HasForeignKey("TargetTaskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("SourceTask");
-
-                    b.Navigation("TargetTask");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskStatusHistory", b =>
@@ -1966,20 +1721,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.Project", b =>
                 {
-                    b.Navigation("Releases");
-
-                    b.Navigation("Sprints");
-
-                    b.Navigation("Tasks");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
-                {
-                    b.Navigation("Tasks");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.Sprint", b =>
-                {
                     b.Navigation("Tasks");
                 });
 
@@ -1987,15 +1728,9 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                 {
                     b.Navigation("Assignments");
 
-                    b.Navigation("Attachments");
-
                     b.Navigation("Comments");
 
                     b.Navigation("CustomFieldValues");
-
-                    b.Navigation("IncomingLinks");
-
-                    b.Navigation("OutgoingLinks");
 
                     b.Navigation("StatusHistory");
                 });

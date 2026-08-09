@@ -9,12 +9,16 @@ public sealed class TaskItem : Entity
     public required string TaskNumber { get; set; }
     public required string Title { get; set; }
     public string? Description { get; set; }
-    public TaskType Type { get; set; }
+    public required string Type { get; set; }
     public WorkflowStatus Status { get; set; } = WorkflowStatus.Draft;
     public Priority Priority { get; set; } = Priority.Medium;
     public Severity? Severity { get; set; }
     public Guid ProjectId { get; set; }
     public Project? Project { get; set; }
+    public Guid? SprintId { get; set; }
+    public Sprint? Sprint { get; set; }
+    public Guid? FixVersionId { get; set; }
+    public ProjectRelease? FixVersion { get; set; }
     public Guid? SoftwareApplicationId { get; set; }
     public SoftwareApplication? SoftwareApplication { get; set; }
     public string? Environment { get; set; }
@@ -31,6 +35,42 @@ public sealed class TaskItem : Entity
     public string? SourceReference { get; set; }
     public ICollection<TaskAssignment> Assignments { get; set; } = [];
     public ICollection<TaskComment> Comments { get; set; } = [];
+    public ICollection<TaskStatusHistory> StatusHistory { get; set; } = [];
+    public ICollection<TaskCustomFieldValue> CustomFieldValues { get; set; } = [];
+    public ICollection<TaskLink> OutgoingLinks { get; set; } = [];
+    public ICollection<TaskLink> IncomingLinks { get; set; } = [];
+    public ICollection<TaskAttachment> Attachments { get; set; } = [];
+}
+
+public sealed class TaskAttachment : Entity
+{
+    public Guid TaskItemId { get; set; }
+    public TaskItem TaskItem { get; set; } = null!;
+    public required string FileName { get; set; }
+    public required string ContentType { get; set; }
+    public long Size { get; set; }
+    public required byte[] Content { get; set; }
+    public required string UploadedBy { get; set; }
+}
+
+public enum TaskLinkType { Blocks, RelatesTo, Duplicates, ParentOf }
+
+public sealed class TaskLink : Entity
+{
+    public Guid SourceTaskId { get; set; }
+    public TaskItem SourceTask { get; set; } = null!;
+    public Guid TargetTaskId { get; set; }
+    public TaskItem TargetTask { get; set; } = null!;
+    public TaskLinkType Type { get; set; }
+}
+
+public sealed class TaskCustomFieldValue : Entity
+{
+    public Guid TaskItemId { get; set; }
+    public TaskItem TaskItem { get; set; } = null!;
+    public Guid CustomFieldDefinitionId { get; set; }
+    public CustomFieldDefinition CustomFieldDefinition { get; set; } = null!;
+    public string? Value { get; set; }
 }
 
 public sealed class TaskAssignment : Entity
@@ -48,6 +88,16 @@ public sealed class TaskComment : Entity
     public TaskItem? TaskItem { get; set; }
     public required string AuthorReference { get; set; }
     public required string Body { get; set; }
+}
+
+public sealed class TaskStatusHistory : Entity
+{
+    public Guid TaskItemId { get; set; }
+    public TaskItem? TaskItem { get; set; }
+    public WorkflowStatus FromStatus { get; set; }
+    public WorkflowStatus ToStatus { get; set; }
+    public required string ActorReference { get; set; }
+    public string? Comment { get; set; }
 }
 
 public sealed class AuditEntry : Entity

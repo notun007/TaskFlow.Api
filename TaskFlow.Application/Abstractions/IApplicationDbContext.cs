@@ -10,9 +10,21 @@ public interface IApplicationDbContext
     DbSet<Vendor> Vendors { get; }
     DbSet<SoftwareApplication> SoftwareApplications { get; }
     DbSet<Project> Projects { get; }
+    DbSet<Sprint> Sprints { get; }
+    DbSet<ProjectRelease> ProjectReleases { get; }
     DbSet<TaskItem> Tasks { get; }
     DbSet<TaskAssignment> TaskAssignments { get; }
     DbSet<TaskComment> TaskComments { get; }
+    DbSet<TaskStatusHistory> TaskStatusHistory { get; }
+    DbSet<TaskCustomFieldValue> TaskCustomFieldValues { get; }
+    DbSet<TaskLink> TaskLinks { get; }
+    DbSet<TaskAttachment> TaskAttachments { get; }
+    DbSet<WorkItemType> WorkItemTypes { get; }
+    DbSet<CustomFieldDefinition> CustomFieldDefinitions { get; }
+    DbSet<CustomFieldOption> CustomFieldOptions { get; }
+    DbSet<CustomFieldContext> CustomFieldContexts { get; }
+    DbSet<WorkflowScheme> WorkflowSchemes { get; }
+    DbSet<WorkflowTransition> WorkflowTransitions { get; }
     DbSet<AuditEntry> AuditEntries { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

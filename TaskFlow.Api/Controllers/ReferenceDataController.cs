@@ -6,12 +6,21 @@ using TaskFlow.Application.Abstractions;
 namespace TaskFlow.Api.Controllers;
 
 public sealed record ReferenceItem(Guid Id, string Name);
+public sealed record WorkItemTypeReference(string Key, string Name);
 
 [ApiController]
 [Route("api/reference-data")]
 [Authorize]
 public sealed class ReferenceDataController(IApplicationDbContext db) : ControllerBase
 {
+    [HttpGet("work-item-types")]
+    public async Task<ActionResult<IReadOnlyList<WorkItemTypeReference>>> WorkItemTypes(CancellationToken cancellationToken) =>
+        Ok(await db.WorkItemTypes.AsNoTracking()
+            .Where(item => !item.IsDeleted && item.IsActive)
+            .OrderBy(item => item.SortOrder).ThenBy(item => item.Name)
+            .Select(item => new WorkItemTypeReference(item.Key, item.Name))
+            .ToListAsync(cancellationToken));
+
     [HttpGet("projects")]
     public async Task<ActionResult<IReadOnlyList<ReferenceItem>>> Projects(CancellationToken cancellationToken) =>
         Ok(await db.Projects.AsNoTracking()
