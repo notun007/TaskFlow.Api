@@ -27,4 +27,12 @@ public sealed class ReferenceDataController(IApplicationDbContext db) : Controll
             .OrderBy(application => application.Name)
             .Select(application => new ReferenceItem(application.Id, application.Name))
             .ToListAsync(cancellationToken));
+
+    [HttpGet("departments")]
+    public async Task<ActionResult<IReadOnlyList<ReferenceItem>>> Departments(CancellationToken cancellationToken) =>
+        Ok(await db.Departments.AsNoTracking()
+            .Where(department => !department.IsDeleted)
+            .OrderBy(department => department.Name)
+            .Select(department => new ReferenceItem(department.Id, department.Name))
+            .ToListAsync(cancellationToken));
 }
