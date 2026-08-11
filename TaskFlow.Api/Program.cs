@@ -6,6 +6,12 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Avoid the Windows Event Log provider in local/console hosting. A logging
+// permission failure must never turn an otherwise valid API request into 500.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddHealthChecks();
