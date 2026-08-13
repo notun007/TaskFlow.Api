@@ -35,7 +35,17 @@ public sealed class ProjectAccessController(IApplicationDbContext db, UserManage
         if (!await db.Projects.AnyAsync(x => x.Id == projectId && !x.IsDeleted, cancellationToken)) return NotFound();
         if (!Enum.TryParse<ProjectRole>(request.Role, true, out var role)) return BadRequest(new { message = "Select a supported project role." });
         if (!await users.Users.AnyAsync(x => x.Id == request.UserId && x.IsActive, cancellationToken)) return BadRequest(new { message = "Select an active user." });
-        if (await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == projectId && x.UserId == request.UserId && x.Role == role && !x.IsDeleted, cancellationToken)) return NoContent();
+        var existing = await db.ProjectRoleAssignments.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == request.UserId && x.Role == role, cancellationToken);
+        if (existing is { IsDeleted: false }) return NoContent();
+        if (existing is not null)
+        {
+            existing.IsDeleted = false;
+            existing.UpdatedAt = DateTimeOffset.UtcNow;
+            Audit(existing, "ProjectRoleAssigned");
+            await db.SaveChangesAsync(cancellationToken);
+            return NoContent();
+        }
         var assignment = new ProjectRoleAssignment { ProjectId = projectId, UserId = request.UserId, Role = role };
         db.ProjectRoleAssignments.Add(assignment);
         Audit(assignment, "ProjectRoleAssigned");

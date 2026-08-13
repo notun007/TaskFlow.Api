@@ -15,6 +15,7 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
     public DbSet<SoftwareApplication> SoftwareApplications => Set<SoftwareApplication>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectRoleAssignment> ProjectRoleAssignments => Set<ProjectRoleAssignment>();
+    public DbSet<TransitionRolePermission> TransitionRolePermissions => Set<TransitionRolePermission>();
     public DbSet<Sprint> Sprints => Set<Sprint>();
     public DbSet<ProjectRelease> ProjectReleases => Set<ProjectRelease>();
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
@@ -45,6 +46,13 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<TaskAssignment>().Property(x => x.Responsibility).HasConversion<string>();
         builder.Entity<ProjectRoleAssignment>().Property(x => x.Role).HasConversion<string>();
         builder.Entity<ProjectRoleAssignment>().HasIndex(x => new { x.ProjectId, x.UserId, x.Role }).IsUnique();
+        builder.Entity<ProjectRoleAssignment>().HasQueryFilter(x => !x.IsDeleted);
+        builder.Entity<TransitionRolePermission>().Property(x => x.FromStatus).HasConversion<string>();
+        builder.Entity<TransitionRolePermission>().Property(x => x.ToStatus).HasConversion<string>();
+        builder.Entity<TransitionRolePermission>().Property(x => x.Role).HasConversion<string>();
+        builder.Entity<TransitionRolePermission>().HasIndex(x => new { x.FromStatus, x.ToStatus, x.Role }).IsUnique();
+        builder.Entity<TransitionRolePermission>().HasQueryFilter(x => !x.IsDeleted);
+        builder.Entity<TransitionRolePermission>().HasData(UniversalTransitionRolePolicy.Permissions.Select(x => new { x.Id, FromStatus = x.From, ToStatus = x.To, x.Role, CreatedAt = UniversalTransitionRolePolicy.SeededAt, UpdatedAt = (DateTimeOffset?)null, IsDeleted = false }));
         builder.Entity<TaskStatusHistory>().Property(x => x.FromStatus).HasConversion<string>();
         builder.Entity<TaskStatusHistory>().Property(x => x.ToStatus).HasConversion<string>();
         builder.Entity<TaskStatusHistory>().HasIndex(x => new { x.TaskItemId, x.CreatedAt });

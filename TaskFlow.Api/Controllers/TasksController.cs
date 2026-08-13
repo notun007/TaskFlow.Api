@@ -6,6 +6,8 @@ using TaskFlow.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using TaskFlow.Domain.Enums;
 using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace TaskFlow.Api.Controllers;
 
@@ -38,7 +40,7 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         Ok(await service.ListAsync(search, status, priority, projectId, sortBy, sortDirection, page, pageSize, cancellationToken));
 
     [HttpGet("{id:guid}")]
-    public async Task<ActionResult<TaskDetails>> Get(Guid id, CancellationToken cancellationToken) => (await service.GetAsync(id, cancellationToken)) is { } task ? Ok(task) : NotFound();
+    public async Task<ActionResult<TaskDetails>> Get(Guid id, CancellationToken cancellationToken) => (await service.GetAsync(id, cancellationToken, CurrentUserId())) is { } task ? Ok(task) : NotFound();
 
     [HttpPost]
     public async Task<ActionResult> Create(CreateTaskRequest request, CancellationToken cancellationToken)
@@ -65,11 +67,12 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
             if (!activeSprint)
                 return Conflict(new { message = "Board movement is allowed only for tasks in an active sprint.", allowedTransitions = Array.Empty<WorkflowStatus>() });
         }
-        var result = await service.ChangeStatusAsync(id, request.Status, request.Comment, User.Identity?.Name ?? "system", cancellationToken);
+        var result = await service.ChangeStatusAsync(id, request.Status, request.Comment, User.Identity?.Name ?? "system", cancellationToken, CurrentUserId());
         return result.Outcome switch
         {
             TaskStatusChangeOutcome.Changed => Ok(result.Task),
             TaskStatusChangeOutcome.NotFound => NotFound(),
+            TaskStatusChangeOutcome.Forbidden => StatusCode(StatusCodes.Status403Forbidden, new { message = "Your project roles do not permit this transition.", requestedStatus = request.Status, requiredRoles = result.RequiredRoles, allowedTransitions = result.AllowedTransitions }),
             _ => Conflict(new { message = "This workflow transition is not allowed.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions })
         };
     }
@@ -131,5 +134,11 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
     {
         var attachment = await db.TaskAttachments.FirstOrDefaultAsync(x => x.Id == attachmentId && x.TaskItemId == id && !x.IsDeleted, cancellationToken); if (attachment is null) return NotFound();
         attachment.IsDeleted = true; db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "AttachmentRemoved", ActorReference = User.Identity?.Name ?? "system", ChangesJson = System.Text.Json.JsonSerializer.Serialize(new { attachment.FileName }) }); await db.SaveChangesAsync(cancellationToken); return NoContent();
+    }
+
+    private Guid? CurrentUserId()
+    {
+        var value = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(value, out var userId) ? userId : null;
     }
 }
