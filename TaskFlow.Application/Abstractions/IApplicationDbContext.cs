@@ -10,6 +10,7 @@ public interface IApplicationDbContext
     DbSet<Vendor> Vendors { get; }
     DbSet<SoftwareApplication> SoftwareApplications { get; }
     DbSet<Project> Projects { get; }
+    DbSet<ProjectRoleAssignment> ProjectRoleAssignments { get; }
     DbSet<Sprint> Sprints { get; }
     DbSet<ProjectRelease> ProjectReleases { get; }
     DbSet<TaskItem> Tasks { get; }
@@ -25,6 +26,8 @@ public interface IApplicationDbContext
     DbSet<CustomFieldContext> CustomFieldContexts { get; }
     DbSet<WorkflowScheme> WorkflowSchemes { get; }
     DbSet<WorkflowTransition> WorkflowTransitions { get; }
+    DbSet<ProjectBoard> ProjectBoards { get; }
+    DbSet<ProjectBoardColumn> ProjectBoardColumns { get; }
     DbSet<AuditEntry> AuditEntries { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

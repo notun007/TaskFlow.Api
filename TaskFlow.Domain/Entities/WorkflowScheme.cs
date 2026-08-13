@@ -10,6 +10,8 @@ public sealed class WorkflowScheme : Entity
     public required string Name { get; set; }
     public Guid? WorkItemTypeId { get; set; }
     public WorkItemType? WorkItemType { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Project? Project { get; set; }
     public bool IsDefault { get; set; }
     public ICollection<WorkflowTransition> Transitions { get; set; } = [];
 }

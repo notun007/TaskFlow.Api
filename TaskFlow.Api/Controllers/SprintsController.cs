@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using TaskFlow.Application.Abstractions;
 using TaskFlow.Domain.Entities;
 using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
@@ -25,12 +26,43 @@ public sealed class SprintsController(IApplicationDbContext db) : ControllerBase
     {
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == projectId && !x.IsDeleted, cancellationToken);
         if (project is null) return NotFound();
+        await ReconcileTaskStatuses(projectId, cancellationToken);
         var sprints = await db.Sprints.AsNoTracking().Where(x => x.ProjectId == projectId && !x.IsDeleted)
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new SprintItem(x.Id, x.Name, x.Goal, x.ProjectId, x.Status.ToString(), x.StartDate, x.EndDate, x.StartedAt, x.CompletedAt, x.CreatedAt,
                 x.Tasks.Where(t => !t.IsDeleted).OrderBy(t => t.CreatedAt).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate)).ToList())).ToListAsync(cancellationToken);
         var backlog = await db.Tasks.AsNoTracking().Where(x => x.ProjectId == projectId && x.SprintId == null && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SprintTaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status.ToString(), x.Priority.ToString(), x.DueDate)).ToListAsync(cancellationToken);
         return Ok(new BacklogDetails(project.Id, project.Name, sprints, backlog));
+    }
+
+    private async Task ReconcileTaskStatuses(Guid projectId, CancellationToken cancellationToken)
+    {
+        var schemeId = await db.WorkflowSchemes.Where(x => x.ProjectId == projectId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
+            ?? await db.WorkflowSchemes.Where(x => x.IsDefault).Select(x => (Guid?)x.Id).SingleAsync(cancellationToken);
+        var transitions = await db.WorkflowTransitions.AsNoTracking().Where(x => x.WorkflowSchemeId == schemeId)
+            .OrderBy(x => x.SortOrder).ToListAsync(cancellationToken);
+        if (transitions.Count == 0) return;
+        var validStatuses = transitions.SelectMany(x => new[] { x.FromStatus, x.ToStatus }).ToHashSet();
+        var entryStatus = transitions[0].FromStatus;
+        var tasks = await db.Tasks.Where(x => x.ProjectId == projectId && !x.IsDeleted
+            && (!validStatuses.Contains(x.Status)
+                || (entryStatus != WorkflowStatus.Submitted
+                    && x.Status == WorkflowStatus.Submitted
+                    && !db.TaskStatusHistory.Any(history => history.TaskItemId == x.Id))))
+            .ToListAsync(cancellationToken);
+        if (tasks.Count == 0) return;
+        var actor = User.Identity?.Name ?? "system";
+        foreach (var task in tasks)
+        {
+            var previousStatus = task.Status;
+            task.Status = entryStatus;
+            task.UpdatedAt = DateTimeOffset.UtcNow;
+            db.TaskStatusHistory.Add(new TaskStatusHistory { TaskItemId = task.Id, FromStatus = previousStatus, ToStatus = entryStatus, ActorReference = actor, Comment = validStatuses.Contains(previousStatus)
+                ? "Moved to the workflow entry stage because this task was created before workflow-based initial statuses were applied."
+                : "Moved to the workflow entry stage because the previous status is not part of the project workflow." });
+            db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = task.Id.ToString(), Action = $"WorkflowStatusReconciled:{entryStatus}", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { fromStatus = previousStatus, toStatus = entryStatus }) });
+        }
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     [HttpPost]

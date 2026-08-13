@@ -17,4 +17,25 @@ public sealed class Project : Entity
     public ICollection<TaskItem> Tasks { get; set; } = [];
     public ICollection<Sprint> Sprints { get; set; } = [];
     public ICollection<ProjectRelease> Releases { get; set; } = [];
+    public WorkflowScheme? WorkflowScheme { get; set; }
+    public ProjectBoard? Board { get; set; }
+    public ICollection<ProjectRoleAssignment> RoleAssignments { get; set; } = [];
+}
+
+public enum ProjectRole
+{
+    Requester,
+    ProductOwner,
+    TeamLead,
+    TeamMember,
+    ReviewerTester,
+    ProjectAdmin
+}
+
+public sealed class ProjectRoleAssignment : Entity
+{
+    public Guid ProjectId { get; set; }
+    public Project Project { get; set; } = null!;
+    public Guid UserId { get; set; }
+    public ProjectRole Role { get; set; }
 }

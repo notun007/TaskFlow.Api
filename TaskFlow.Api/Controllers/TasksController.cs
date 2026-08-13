@@ -10,7 +10,7 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 namespace TaskFlow.Api.Controllers;
 
 public sealed record AddTaskCommentRequest(string Body);
-public sealed record ChangeTaskStatusRequest(WorkflowStatus Status, string? Comment);
+public sealed record ChangeTaskStatusRequest(WorkflowStatus Status, string? Comment, bool RequireActiveSprint = false);
 
 [ApiController]
 [Route("api/tasks")]
@@ -55,6 +55,16 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
     [HttpPatch("{id:guid}/status")]
     public async Task<ActionResult<TaskDetails>> ChangeStatus(Guid id, ChangeTaskStatusRequest request, CancellationToken cancellationToken)
     {
+        if (request.RequireActiveSprint)
+        {
+            var sprintId = await db.Tasks.Where(task => task.Id == id && !task.IsDeleted)
+                .Select(task => task.SprintId).SingleOrDefaultAsync(cancellationToken);
+            var activeSprint = sprintId.HasValue && await db.Sprints.AnyAsync(sprint =>
+                sprint.Id == sprintId.Value && !sprint.IsDeleted && sprint.Status == SprintStatus.Active,
+                cancellationToken);
+            if (!activeSprint)
+                return Conflict(new { message = "Board movement is allowed only for tasks in an active sprint.", allowedTransitions = Array.Empty<WorkflowStatus>() });
+        }
         var result = await service.ChangeStatusAsync(id, request.Status, request.Comment, User.Identity?.Name ?? "system", cancellationToken);
         return result.Outcome switch
         {

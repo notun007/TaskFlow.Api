@@ -14,6 +14,7 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
     public DbSet<Vendor> Vendors => Set<Vendor>();
     public DbSet<SoftwareApplication> SoftwareApplications => Set<SoftwareApplication>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectRoleAssignment> ProjectRoleAssignments => Set<ProjectRoleAssignment>();
     public DbSet<Sprint> Sprints => Set<Sprint>();
     public DbSet<ProjectRelease> ProjectReleases => Set<ProjectRelease>();
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
@@ -29,6 +30,8 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
     public DbSet<CustomFieldContext> CustomFieldContexts => Set<CustomFieldContext>();
     public DbSet<WorkflowScheme> WorkflowSchemes => Set<WorkflowScheme>();
     public DbSet<WorkflowTransition> WorkflowTransitions => Set<WorkflowTransition>();
+    public DbSet<ProjectBoard> ProjectBoards => Set<ProjectBoard>();
+    public DbSet<ProjectBoardColumn> ProjectBoardColumns => Set<ProjectBoardColumn>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -40,6 +43,8 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<TaskItem>().Property(x => x.Priority).HasConversion<string>();
         builder.Entity<TaskItem>().Property(x => x.Severity).HasConversion<string>();
         builder.Entity<TaskAssignment>().Property(x => x.Responsibility).HasConversion<string>();
+        builder.Entity<ProjectRoleAssignment>().Property(x => x.Role).HasConversion<string>();
+        builder.Entity<ProjectRoleAssignment>().HasIndex(x => new { x.ProjectId, x.UserId, x.Role }).IsUnique();
         builder.Entity<TaskStatusHistory>().Property(x => x.FromStatus).HasConversion<string>();
         builder.Entity<TaskStatusHistory>().Property(x => x.ToStatus).HasConversion<string>();
         builder.Entity<TaskStatusHistory>().HasIndex(x => new { x.TaskItemId, x.CreatedAt });
@@ -88,11 +93,19 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<CustomFieldContext>().HasIndex(x => new { x.CustomFieldDefinitionId, x.WorkItemTypeId }).IsUnique();
         builder.Entity<CustomFieldContext>().HasQueryFilter(x => !x.IsDeleted);
         builder.Entity<WorkflowScheme>().HasIndex(x => x.WorkItemTypeId).IsUnique();
+        builder.Entity<WorkflowScheme>().HasIndex(x => x.ProjectId).IsUnique();
+        builder.Entity<WorkflowScheme>().HasOne(x => x.Project).WithOne(x => x.WorkflowScheme).HasForeignKey<WorkflowScheme>(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
         builder.Entity<WorkflowScheme>().HasQueryFilter(x => !x.IsDeleted);
         builder.Entity<WorkflowTransition>().Property(x => x.FromStatus).HasConversion<string>();
         builder.Entity<WorkflowTransition>().Property(x => x.ToStatus).HasConversion<string>();
         builder.Entity<WorkflowTransition>().HasIndex(x => new { x.WorkflowSchemeId, x.FromStatus, x.ToStatus }).IsUnique();
         builder.Entity<WorkflowTransition>().HasQueryFilter(x => !x.IsDeleted);
+        builder.Entity<ProjectBoard>().HasIndex(x => x.ProjectId).IsUnique();
+        builder.Entity<ProjectBoard>().HasQueryFilter(x => !x.IsDeleted);
+        builder.Entity<ProjectBoard>().HasOne(x => x.Project).WithOne(x => x.Board).HasForeignKey<ProjectBoard>(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<ProjectBoardColumn>().Property(x => x.Status).HasConversion<string>();
+        builder.Entity<ProjectBoardColumn>().HasIndex(x => new { x.ProjectBoardId, x.Status }).IsUnique();
+        builder.Entity<ProjectBoardColumn>().HasQueryFilter(x => !x.IsDeleted);
         builder.Entity<WorkflowScheme>().HasData(new { Id = BuiltInWorkflow.SchemeId, Name = "Default workflow", WorkItemTypeId = (Guid?)null, IsDefault = true, CreatedAt = BuiltInWorkflow.SeededAt, UpdatedAt = (DateTimeOffset?)null, IsDeleted = false });
         builder.Entity<WorkflowTransition>().HasData(BuiltInWorkflow.Transitions.Select(x => new { x.Id, WorkflowSchemeId = BuiltInWorkflow.SchemeId, FromStatus = x.From, ToStatus = x.To, x.SortOrder, CreatedAt = BuiltInWorkflow.SeededAt, UpdatedAt = (DateTimeOffset?)null, IsDeleted = false }));
     }

@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Identity;
+using TaskFlow.Infrastructure.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,6 +35,34 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddCors(options => options.AddPolicy("Web", policy => policy.WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:4200"]).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+if (app.Environment.IsDevelopment())
+{
+    var administratorEmail = app.Configuration["BootstrapAdministrator"]?.Trim();
+    if (!string.IsNullOrWhiteSpace(administratorEmail))
+    {
+        using var scope = app.Services.CreateScope();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        const string administratorRole = "Administrator";
+        if (!await roleManager.RoleExistsAsync(administratorRole))
+        {
+            var roleResult = await roleManager.CreateAsync(new IdentityRole<Guid>(administratorRole));
+            if (!roleResult.Succeeded)
+                throw new InvalidOperationException($"Administrator role could not be created: {string.Join(", ", roleResult.Errors.Select(error => error.Description))}");
+        }
+
+        var administrator = await userManager.FindByEmailAsync(administratorEmail);
+        if (administrator is null)
+            app.Logger.LogWarning("Bootstrap administrator account {Email} does not exist.", administratorEmail);
+        else if (!await userManager.IsInRoleAsync(administrator, administratorRole))
+        {
+            var assignmentResult = await userManager.AddToRoleAsync(administrator, administratorRole);
+            if (!assignmentResult.Succeeded)
+                throw new InvalidOperationException($"Administrator role could not be assigned: {string.Join(", ", assignmentResult.Errors.Select(error => error.Description))}");
+            app.Logger.LogInformation("Development administrator role assigned to {Email}.", administratorEmail);
+        }
+    }
+}
 app.UseCors("Web");
 app.UseAuthentication();
 app.UseAuthorization();

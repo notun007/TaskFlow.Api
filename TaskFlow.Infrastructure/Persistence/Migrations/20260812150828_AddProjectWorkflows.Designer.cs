@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using TaskFlow.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TaskFlow.Infrastructure.Persistence;
 namespace TaskFlow.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TaskFlowDbContext))]
-    partial class TaskFlowDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812150828_AddProjectWorkflows")]
+    partial class AddProjectWorkflows
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -414,75 +417,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.ToTable("Projects", "TASKFLOW");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectBoard", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId")
-                        .IsUnique();
-
-                    b.ToTable("ProjectBoards", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectBoardColumn", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<bool>("IsDefaultDestination")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)");
-
-                    b.Property<Guid>("ProjectBoardId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("NUMBER(10)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<int?>("WipLimit")
-                        .HasColumnType("NUMBER(10)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectBoardId", "Status")
-                        .IsUnique();
-
-                    b.ToTable("ProjectBoardColumns", "TASKFLOW");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
                 {
                     b.Property<Guid>("Id")
@@ -527,39 +461,6 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ProjectReleases", "TASKFLOW");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRoleAssignment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("NUMBER(1)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("RAW(16)");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(450)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("TIMESTAMP(7) WITH TIME ZONE");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("RAW(16)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "UserId", "Role")
-                        .IsUnique();
-
-                    b.ToTable("ProjectRoleAssignments", "TASKFLOW");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.SoftwareApplication", b =>
@@ -1888,43 +1789,10 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("SoftwareApplication");
                 });
 
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectBoard", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
-                        .WithOne("Board")
-                        .HasForeignKey("TaskFlow.Domain.Entities.ProjectBoard", "ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectBoardColumn", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.ProjectBoard", "ProjectBoard")
-                        .WithMany("Columns")
-                        .HasForeignKey("ProjectBoardId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ProjectBoard");
-                });
-
             modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>
                 {
                     b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
                         .WithMany("Releases")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRoleAssignment", b =>
-                {
-                    b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
-                        .WithMany("RoleAssignments")
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -2115,22 +1983,13 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.Project", b =>
                 {
-                    b.Navigation("Board");
-
                     b.Navigation("Releases");
-
-                    b.Navigation("RoleAssignments");
 
                     b.Navigation("Sprints");
 
                     b.Navigation("Tasks");
 
                     b.Navigation("WorkflowScheme");
-                });
-
-            modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectBoard", b =>
-                {
-                    b.Navigation("Columns");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.ProjectRelease", b =>

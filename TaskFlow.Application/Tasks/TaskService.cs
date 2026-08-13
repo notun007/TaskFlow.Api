@@ -119,7 +119,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             task.DueDate,
             task.CreatedAt,
             task.UpdatedAt,
-            await AllowedTransitionsAsync(task.Type, task.Status, cancellationToken),
+            await AllowedTransitionsAsync(task.ProjectId, task.Status, cancellationToken),
             task.StatusHistory.OrderByDescending(x => x.CreatedAt).Select(x => new TaskStatusHistoryItem(x.Id, x.FromStatus, x.ToStatus, x.ActorReference, x.Comment, x.CreatedAt)).ToArray(),
             task.CustomFieldValues.Where(x => !x.IsDeleted && x.CustomFieldDefinition.Contexts.Any(c => !c.IsDeleted && c.ShowOnDetails && (c.WorkItemTypeId == null || c.WorkItemType!.Key == task.Type))).OrderBy(x => x.CustomFieldDefinition.SortOrder).Select(x => new TaskCustomFieldValueItem(x.CustomFieldDefinitionId, x.CustomFieldDefinition.Key, x.CustomFieldDefinition.Name, x.CustomFieldDefinition.Type.ToString(), x.Value, DisplayValues(x))).ToArray(),
             task.OutgoingLinks.Where(x => !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, true, x.TargetTaskId, x.TargetTask.TaskNumber, x.TargetTask.Title, x.TargetTask.Status))
@@ -135,7 +135,8 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (string.IsNullOrWhiteSpace(request.Title) || !await db.WorkItemTypes.AnyAsync(item => !item.IsDeleted && item.IsActive && item.Key == type, cancellationToken)) return null;
         var fields = await ApplicableFields(type, cancellationToken);
         if (!ValidateCustomFields(fields, request.CustomFields, true)) return null;
-        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, Status = WorkflowStatus.Submitted };
+        var initialStatus = await InitialStatusAsync(request.ProjectId, cancellationToken);
+        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, Status = initialStatus };
         db.Tasks.Add(task);
         SyncCustomFields(task, fields, request.CustomFields, true);
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = task.Id.ToString(), Action = "Created", ActorReference = actor });
@@ -169,7 +170,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
     {
         var task = await db.Tasks.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
         if (task is null) return new(TaskStatusChangeOutcome.NotFound, null, []);
-        var allowed = await AllowedTransitionsAsync(task.Type, task.Status, cancellationToken);
+        var allowed = await AllowedTransitionsAsync(task.ProjectId, task.Status, cancellationToken);
         if (!allowed.Contains(status))
             return new(TaskStatusChangeOutcome.InvalidTransition, null, allowed);
         var fromStatus = task.Status;
@@ -179,7 +180,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         db.TaskStatusHistory.Add(new TaskStatusHistory { TaskItemId = id, FromStatus = fromStatus, ToStatus = status, ActorReference = actor, Comment = transitionComment });
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"StatusChanged:{status}", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { fromStatus, toStatus = status, comment = transitionComment }) });
         await db.SaveChangesAsync(cancellationToken);
-        return new(TaskStatusChangeOutcome.Changed, await GetAsync(id, cancellationToken), await AllowedTransitionsAsync(task.Type, status, cancellationToken));
+        return new(TaskStatusChangeOutcome.Changed, await GetAsync(id, cancellationToken), await AllowedTransitionsAsync(task.ProjectId, status, cancellationToken));
     }
 
     public async Task<TaskCommentItem?> AddCommentAsync(Guid id, string body, string actor, CancellationToken cancellationToken)
@@ -249,13 +250,40 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<WorkflowStatus>> AllowedTransitionsAsync(string typeKey, WorkflowStatus current, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<WorkflowStatus>> AllowedTransitionsAsync(Guid projectId, WorkflowStatus current, CancellationToken cancellationToken)
     {
-        var workItemTypeId = await db.WorkItemTypes.Where(x => x.Key == typeKey).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken);
-        var schemeId = await db.WorkflowSchemes.Where(x => x.WorkItemTypeId == workItemTypeId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
+        var schemeId = await db.WorkflowSchemes.Where(x => x.ProjectId == projectId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
             ?? await db.WorkflowSchemes.Where(x => x.IsDefault).Select(x => (Guid?)x.Id).SingleAsync(cancellationToken);
         return await db.WorkflowTransitions.AsNoTracking().Where(x => x.WorkflowSchemeId == schemeId && x.FromStatus == current)
             .OrderBy(x => x.SortOrder).Select(x => x.ToStatus).ToListAsync(cancellationToken);
+    }
+
+    private async Task<WorkflowStatus> InitialStatusAsync(Guid projectId, CancellationToken cancellationToken)
+    {
+        var projectSchemeId = await db.WorkflowSchemes
+            .Where(x => x.ProjectId == projectId)
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (projectSchemeId.HasValue)
+        {
+            var projectEntryStatus = await db.WorkflowTransitions.AsNoTracking()
+                .Where(x => x.WorkflowSchemeId == projectSchemeId.Value)
+                .OrderBy(x => x.SortOrder)
+                .Select(x => (WorkflowStatus?)x.FromStatus)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (projectEntryStatus.HasValue) return projectEntryStatus.Value;
+        }
+
+        var defaultSchemeId = await db.WorkflowSchemes
+            .Where(x => x.IsDefault)
+            .Select(x => x.Id)
+            .SingleAsync(cancellationToken);
+        return await db.WorkflowTransitions.AsNoTracking()
+            .Where(x => x.WorkflowSchemeId == defaultSchemeId)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => (WorkflowStatus?)x.FromStatus)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? WorkflowStatus.Draft;
     }
 
     private static bool ValidateCustomFields(IReadOnlyList<CustomFieldDefinition> fields, IReadOnlyList<SaveTaskCustomFieldValueRequest>? requests, bool createScreen)
