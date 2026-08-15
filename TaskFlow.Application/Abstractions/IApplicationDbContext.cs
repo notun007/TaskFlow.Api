@@ -11,6 +11,7 @@ public interface IApplicationDbContext
     DbSet<SoftwareApplication> SoftwareApplications { get; }
     DbSet<Project> Projects { get; }
     DbSet<Epic> Epics { get; }
+    DbSet<Feature> Features { get; }
     DbSet<ProjectRoleAssignment> ProjectRoleAssignments { get; }
     DbSet<TransitionRolePermission> TransitionRolePermissions { get; }
     DbSet<Sprint> Sprints { get; }

@@ -15,6 +15,7 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
     public DbSet<SoftwareApplication> SoftwareApplications => Set<SoftwareApplication>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<Epic> Epics => Set<Epic>();
+    public DbSet<Feature> Features => Set<Feature>();
     public DbSet<ProjectRoleAssignment> ProjectRoleAssignments => Set<ProjectRoleAssignment>();
     public DbSet<TransitionRolePermission> TransitionRolePermissions => Set<TransitionRolePermission>();
     public DbSet<Sprint> Sprints => Set<Sprint>();
@@ -45,9 +46,14 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<TaskItem>().Property(x => x.Priority).HasConversion<string>();
         builder.Entity<TaskItem>().Property(x => x.Severity).HasConversion<string>();
         builder.Entity<TaskItem>().HasOne(x => x.Epic).WithMany(x => x.Tasks).HasForeignKey(x => x.EpicId).OnDelete(DeleteBehavior.SetNull);
+        builder.Entity<TaskItem>().HasOne(x => x.Feature).WithMany(x => x.Tasks).HasForeignKey(x => x.FeatureId).OnDelete(DeleteBehavior.SetNull);
         builder.Entity<Epic>().Property(x => x.Status).HasConversion<string>();
         builder.Entity<Epic>().HasIndex(x => new { x.ProjectId, x.Name }).IsUnique();
         builder.Entity<Epic>().HasQueryFilter(x => !x.IsDeleted);
+        builder.Entity<Feature>().Property(x => x.Status).HasConversion<string>();
+        builder.Entity<Feature>().HasIndex(x => new { x.EpicId, x.Name }).IsUnique();
+        builder.Entity<Feature>().HasIndex(x => x.ProjectId);
+        builder.Entity<Feature>().HasQueryFilter(x => !x.IsDeleted);
         builder.Entity<TaskAssignment>().Property(x => x.Responsibility).HasConversion<string>();
         builder.Entity<ProjectRoleAssignment>().Property(x => x.Role).HasConversion<string>();
         builder.Entity<ProjectRoleAssignment>().HasIndex(x => new { x.ProjectId, x.UserId, x.Role }).IsUnique();

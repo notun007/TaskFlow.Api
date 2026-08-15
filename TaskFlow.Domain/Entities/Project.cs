@@ -16,6 +16,7 @@ public sealed class Project : Entity
     public SoftwareApplication? SoftwareApplication { get; set; }
     public ICollection<TaskItem> Tasks { get; set; } = [];
     public ICollection<Epic> Epics { get; set; } = [];
+    public ICollection<Feature> Features { get; set; } = [];
     public ICollection<Sprint> Sprints { get; set; } = [];
     public ICollection<ProjectRelease> Releases { get; set; } = [];
     public WorkflowScheme? WorkflowScheme { get; set; }

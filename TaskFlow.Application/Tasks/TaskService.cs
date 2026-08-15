@@ -8,11 +8,11 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Application.Tasks;
 
-public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName, Guid? EpicId, string? EpicName);
+public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName, Guid? EpicId, string? EpicName, Guid? FeatureId, string? FeatureName);
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 public sealed record SaveTaskCustomFieldValueRequest(Guid CustomFieldDefinitionId, string? Value);
-public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
-public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
+public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
+public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
 public sealed record AddTaskAssignmentRequest(ResponsibilityType Responsibility, string PartyReference, string? DisplayName);
 public sealed record TaskAssignmentItem(Guid Id, ResponsibilityType Responsibility, string PartyReference, string? DisplayName);
 public sealed record TaskCommentItem(Guid Id, string AuthorReference, string Body, DateTimeOffset CreatedAt);
@@ -36,6 +36,8 @@ public sealed record TaskDetails(
     string ProjectName,
     Guid? EpicId,
     string? EpicName,
+    Guid? FeatureId,
+    string? FeatureName,
     DateTimeOffset? DueDate,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
@@ -49,7 +51,7 @@ public sealed record TaskDetails(
 
 public interface ITaskService
 {
-    Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, Guid? epicId, string? epicAssignment, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken);
+    Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, Guid? epicId, string? epicAssignment, Guid? featureId, string? featureAssignment, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken);
     Task<TaskDetails?> GetAsync(Guid id, CancellationToken cancellationToken, Guid? userId = null);
     Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken);
     Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, CancellationToken cancellationToken);
@@ -63,7 +65,7 @@ public interface ITaskService
 
 public sealed class TaskService(IApplicationDbContext db) : ITaskService
 {
-    public async Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, Guid? epicId, string? epicAssignment, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, Guid? epicId, string? epicAssignment, Guid? featureId, string? featureAssignment, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken)
     {
         var query = db.Tasks.AsNoTracking().Include(x => x.Project).Where(x => !x.IsDeleted);
         if (!string.IsNullOrWhiteSpace(search)) query = query.Where(x => x.Title.Contains(search) || x.TaskNumber.Contains(search));
@@ -73,6 +75,9 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (epicId.HasValue) query = query.Where(x => x.EpicId == epicId.Value);
         else if (string.Equals(epicAssignment, "assigned", StringComparison.OrdinalIgnoreCase)) query = query.Where(x => x.EpicId != null);
         else if (string.Equals(epicAssignment, "unassigned", StringComparison.OrdinalIgnoreCase)) query = query.Where(x => x.EpicId == null);
+        if (featureId.HasValue) query = query.Where(x => x.FeatureId == featureId.Value);
+        else if (string.Equals(featureAssignment, "assigned", StringComparison.OrdinalIgnoreCase)) query = query.Where(x => x.FeatureId != null);
+        else if (string.Equals(featureAssignment, "unassigned", StringComparison.OrdinalIgnoreCase)) query = query.Where(x => x.FeatureId == null);
 
         var totalCount = await query.CountAsync(cancellationToken);
         var descending = string.Equals(sortDirection, "desc", StringComparison.OrdinalIgnoreCase);
@@ -90,7 +95,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 5, 100);
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(x => new TaskListItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.DueDate, x.Project!.Name, x.EpicId, x.Epic != null ? x.Epic.Name : null))
+            .Select(x => new TaskListItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.DueDate, x.Project!.Name, x.EpicId, x.Epic != null ? x.Epic.Name : null, x.FeatureId, x.Feature != null ? x.Feature.Name : null))
             .ToListAsync(cancellationToken);
         return new PagedResult<TaskListItem>(items, totalCount, page, pageSize);
     }
@@ -100,6 +105,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         var task = await db.Tasks.AsNoTracking()
             .Include(x => x.Project)
             .Include(x => x.Epic)
+            .Include(x => x.Feature)
             .Include(x => x.Assignments)
             .Include(x => x.Comments)
             .Include(x => x.StatusHistory)
@@ -124,6 +130,8 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             task.Project?.Name ?? "Unassigned project",
             task.EpicId,
             task.Epic != null ? task.Epic.Name : null,
+            task.FeatureId,
+            task.Feature != null ? task.Feature.Name : null,
             task.DueDate,
             task.CreatedAt,
             task.UpdatedAt,
@@ -143,9 +151,9 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (string.IsNullOrWhiteSpace(request.Title) || !await db.WorkItemTypes.AnyAsync(item => !item.IsDeleted && item.IsActive && item.Key == type, cancellationToken)) return null;
         var fields = await ApplicableFields(type, cancellationToken);
         if (!ValidateCustomFields(fields, request.CustomFields, true)) return null;
-        if (!await ValidEpic(request.EpicId, request.ProjectId, cancellationToken)) return null;
+        var hierarchy = await ResolveHierarchy(request.ProjectId, request.EpicId, request.FeatureId, cancellationToken); if (!hierarchy.Valid) return null;
         var initialStatus = await InitialStatusAsync(request.ProjectId, cancellationToken);
-        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, EpicId = request.EpicId, Status = initialStatus };
+        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, EpicId = hierarchy.EpicId, FeatureId = request.FeatureId, Status = initialStatus };
         db.Tasks.Add(task);
         SyncCustomFields(task, fields, request.CustomFields, true);
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = task.Id.ToString(), Action = "Created", ActorReference = actor });
@@ -161,7 +169,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (!await db.WorkItemTypes.AnyAsync(item => !item.IsDeleted && item.IsActive && item.Key == type, cancellationToken)) return null;
         var fields = await ApplicableFields(type, cancellationToken);
         if (!ValidateCustomFields(fields, request.CustomFields, false)) return null;
-        if (!await ValidEpic(request.EpicId, request.ProjectId, cancellationToken)) return null;
+        var hierarchy = await ResolveHierarchy(request.ProjectId, request.EpicId, request.FeatureId, cancellationToken); if (!hierarchy.Valid) return null;
         task.Title = request.Title.Trim();
         task.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         task.Type = type;
@@ -170,7 +178,8 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         task.ProjectId = request.ProjectId;
         task.SoftwareApplicationId = request.SoftwareApplicationId;
         task.DueDate = request.DueDate;
-        task.EpicId = request.EpicId;
+        task.EpicId = hierarchy.EpicId;
+        task.FeatureId = request.FeatureId;
         SyncCustomFields(task, fields, request.CustomFields, false);
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "Updated", ActorReference = actor });
         await db.SaveChangesAsync(cancellationToken);
@@ -264,8 +273,19 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<bool> ValidEpic(Guid? epicId, Guid projectId, CancellationToken cancellationToken) =>
-        !epicId.HasValue || await db.Epics.AnyAsync(x => x.Id == epicId.Value && x.ProjectId == projectId && x.Status == EpicStatus.Active, cancellationToken);
+    private async Task<(bool Valid, Guid? EpicId)> ResolveHierarchy(Guid projectId, Guid? epicId, Guid? featureId, CancellationToken cancellationToken)
+    {
+        if (featureId.HasValue)
+        {
+            var feature = await db.Features.AsNoTracking().Where(x => x.Id == featureId.Value && x.ProjectId == projectId && x.Status == FeatureStatus.Active)
+                .Select(x => new { x.EpicId }).SingleOrDefaultAsync(cancellationToken);
+            if (feature is null || (epicId.HasValue && epicId.Value != feature.EpicId)) return (false, null);
+            var activeEpic = await db.Epics.AnyAsync(x => x.Id == feature.EpicId && x.ProjectId == projectId && x.Status == EpicStatus.Active, cancellationToken);
+            return (activeEpic, feature.EpicId);
+        }
+        var validEpic = !epicId.HasValue || await db.Epics.AnyAsync(x => x.Id == epicId.Value && x.ProjectId == projectId && x.Status == EpicStatus.Active, cancellationToken);
+        return (validEpic, epicId);
+    }
 
     private async Task<IReadOnlyList<WorkflowStatus>> WorkflowTransitionsAsync(Guid projectId, WorkflowStatus current, CancellationToken cancellationToken)
     {
