@@ -10,6 +10,7 @@ public interface IApplicationDbContext
     DbSet<Vendor> Vendors { get; }
     DbSet<SoftwareApplication> SoftwareApplications { get; }
     DbSet<Project> Projects { get; }
+    DbSet<Epic> Epics { get; }
     DbSet<ProjectRoleAssignment> ProjectRoleAssignments { get; }
     DbSet<TransitionRolePermission> TransitionRolePermissions { get; }
     DbSet<Sprint> Sprints { get; }

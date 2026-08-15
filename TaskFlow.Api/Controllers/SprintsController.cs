@@ -8,7 +8,7 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Api.Controllers;
 
-public sealed record SprintTaskItem(Guid Id, string TaskNumber, string Title, string Type, string Status, string Priority, DateTimeOffset? DueDate);
+public sealed record SprintTaskItem(Guid Id, string TaskNumber, string Title, string Type, string Status, string Priority, DateTimeOffset? DueDate, Guid? EpicId, string? EpicName);
 public sealed record SprintItem(Guid Id, string Name, string? Goal, Guid ProjectId, string Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, DateTimeOffset CreatedAt, IReadOnlyList<SprintTaskItem> Tasks);
 public sealed record BacklogDetails(Guid ProjectId, string ProjectName, IReadOnlyList<SprintItem> Sprints, IReadOnlyList<SprintTaskItem> Backlog);
 public sealed record SaveSprintRequest(string Name, string? Goal, Guid ProjectId, DateOnly? StartDate, DateOnly? EndDate);
@@ -30,8 +30,8 @@ public sealed class SprintsController(IApplicationDbContext db) : ControllerBase
         var sprints = await db.Sprints.AsNoTracking().Where(x => x.ProjectId == projectId && !x.IsDeleted)
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new SprintItem(x.Id, x.Name, x.Goal, x.ProjectId, x.Status.ToString(), x.StartDate, x.EndDate, x.StartedAt, x.CompletedAt, x.CreatedAt,
-                x.Tasks.Where(t => !t.IsDeleted).OrderBy(t => t.CreatedAt).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate)).ToList())).ToListAsync(cancellationToken);
-        var backlog = await db.Tasks.AsNoTracking().Where(x => x.ProjectId == projectId && x.SprintId == null && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SprintTaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status.ToString(), x.Priority.ToString(), x.DueDate)).ToListAsync(cancellationToken);
+                x.Tasks.Where(t => !t.IsDeleted).OrderBy(t => t.CreatedAt).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate, t.EpicId, t.Epic != null ? t.Epic.Name : null)).ToList())).ToListAsync(cancellationToken);
+        var backlog = await db.Tasks.AsNoTracking().Where(x => x.ProjectId == projectId && x.SprintId == null && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SprintTaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status.ToString(), x.Priority.ToString(), x.DueDate, x.EpicId, x.Epic != null ? x.Epic.Name : null)).ToListAsync(cancellationToken);
         return Ok(new BacklogDetails(project.Id, project.Name, sprints, backlog));
     }
 
@@ -123,7 +123,7 @@ public sealed class SprintsController(IApplicationDbContext db) : ControllerBase
         task.SprintId = request.SprintId; db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = taskId.ToString(), Action = request.SprintId.HasValue ? "SprintAssigned" : "MovedToBacklog", ActorReference = User.Identity?.Name ?? "system" }); await db.SaveChangesAsync(cancellationToken); return NoContent();
     }
 
-    private async Task<SprintItem> Find(Guid id, CancellationToken cancellationToken) => await db.Sprints.AsNoTracking().Where(x => x.Id == id).Select(x => new SprintItem(x.Id, x.Name, x.Goal, x.ProjectId, x.Status.ToString(), x.StartDate, x.EndDate, x.StartedAt, x.CompletedAt, x.CreatedAt, x.Tasks.Where(t => !t.IsDeleted).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate)).ToList())).SingleAsync(cancellationToken);
+    private async Task<SprintItem> Find(Guid id, CancellationToken cancellationToken) => await db.Sprints.AsNoTracking().Where(x => x.Id == id).Select(x => new SprintItem(x.Id, x.Name, x.Goal, x.ProjectId, x.Status.ToString(), x.StartDate, x.EndDate, x.StartedAt, x.CompletedAt, x.CreatedAt, x.Tasks.Where(t => !t.IsDeleted).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate, t.EpicId, t.Epic != null ? t.Epic.Name : null)).ToList())).SingleAsync(cancellationToken);
     private void Audit(Guid id, string action) => db.AuditEntries.Add(new AuditEntry { EntityName = nameof(Sprint), EntityId = id.ToString(), Action = action, ActorReference = User.Identity?.Name ?? "system" });
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

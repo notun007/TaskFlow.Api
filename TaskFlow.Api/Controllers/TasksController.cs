@@ -32,12 +32,14 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         [FromQuery] WorkflowStatus? status,
         [FromQuery] Priority? priority,
         [FromQuery] Guid? projectId,
+        [FromQuery] Guid? epicId,
+        [FromQuery] string? epicAssignment,
         [FromQuery] string? sortBy,
         [FromQuery] string? sortDirection,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         CancellationToken cancellationToken = default) =>
-        Ok(await service.ListAsync(search, status, priority, projectId, sortBy, sortDirection, page, pageSize, cancellationToken));
+        Ok(await service.ListAsync(search, status, priority, projectId, epicId, epicAssignment, sortBy, sortDirection, page, pageSize, cancellationToken));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TaskDetails>> Get(Guid id, CancellationToken cancellationToken) => (await service.GetAsync(id, cancellationToken, CurrentUserId())) is { } task ? Ok(task) : NotFound();

@@ -15,6 +15,8 @@ public sealed class TaskItem : Entity
     public Severity? Severity { get; set; }
     public Guid ProjectId { get; set; }
     public Project? Project { get; set; }
+    public Guid? EpicId { get; set; }
+    public Epic? Epic { get; set; }
     public Guid? SprintId { get; set; }
     public Sprint? Sprint { get; set; }
     public Guid? FixVersionId { get; set; }
