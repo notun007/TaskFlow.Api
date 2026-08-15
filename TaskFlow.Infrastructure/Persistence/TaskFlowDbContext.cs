@@ -47,6 +47,8 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<TaskItem>().Property(x => x.Severity).HasConversion<string>();
         builder.Entity<TaskItem>().HasOne(x => x.Epic).WithMany(x => x.Tasks).HasForeignKey(x => x.EpicId).OnDelete(DeleteBehavior.SetNull);
         builder.Entity<TaskItem>().HasOne(x => x.Feature).WithMany(x => x.Tasks).HasForeignKey(x => x.FeatureId).OnDelete(DeleteBehavior.SetNull);
+        builder.Entity<TaskItem>().HasOne(x => x.ParentTask).WithMany(x => x.Subtasks).HasForeignKey(x => x.ParentTaskId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<TaskItem>().HasIndex(x => x.ParentTaskId);
         builder.Entity<Epic>().Property(x => x.Status).HasConversion<string>();
         builder.Entity<Epic>().HasIndex(x => new { x.ProjectId, x.Name }).IsUnique();
         builder.Entity<Epic>().HasQueryFilter(x => !x.IsDeleted);

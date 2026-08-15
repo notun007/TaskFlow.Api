@@ -13,6 +13,7 @@ namespace TaskFlow.Api.Controllers;
 
 public sealed record AddTaskCommentRequest(string Body);
 public sealed record ChangeTaskStatusRequest(WorkflowStatus Status, string? Comment, bool RequireActiveSprint = false);
+public sealed record CreateSubtaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, DateTimeOffset? DueDate, Guid? SprintId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
 
 [ApiController]
 [Route("api/tasks")]
@@ -54,6 +55,23 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         return CreatedAtAction(nameof(Get), new { id = task.Id }, task);
     }
 
+    [HttpPost("{id:guid}/subtasks")]
+    public async Task<ActionResult<TaskDetails>> CreateSubtask(Guid id, CreateSubtaskRequest request, CancellationToken cancellationToken)
+    {
+        var parent = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+        if (parent is null) return NotFound();
+        if (parent.ParentTaskId.HasValue) return Conflict(new { message = "A subtask cannot have child tasks. Only one subtask level is allowed." });
+        if (request.SprintId.HasValue && !await db.Sprints.AnyAsync(x => x.Id == request.SprintId && x.ProjectId == parent.ProjectId && !x.IsDeleted && x.Status != SprintStatus.Completed, cancellationToken))
+            return BadRequest(new { message = "Select a planned or active sprint from the parent task's project." });
+        var created = await service.CreateAsync(new CreateTaskRequest(request.Title, request.Description, request.Type, request.Priority, request.Severity, parent.ProjectId, parent.SoftwareApplicationId, request.DueDate, parent.EpicId, parent.FeatureId, request.CustomFields), User.Identity?.Name ?? "system", cancellationToken);
+        if (created is null) return BadRequest(new { message = "A title, valid work item type, and valid required fields are required." });
+        created.ParentTaskId = parent.Id;
+        created.SprintId = request.SprintId;
+        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = created.Id.ToString(), Action = "SubtaskCreated", ActorReference = User.Identity?.Name ?? "system", ChangesJson = System.Text.Json.JsonSerializer.Serialize(new { parentTaskId = parent.Id, sprintId = request.SprintId }) });
+        await db.SaveChangesAsync(cancellationToken);
+        return CreatedAtAction(nameof(Get), new { id = created.Id }, await service.GetAsync(created.Id, cancellationToken, CurrentUserId()));
+    }
+
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<TaskDetails>> Update(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken) =>
         (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", cancellationToken)) is { } task ? Ok(task) : NotFound();
@@ -77,6 +95,7 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
             TaskStatusChangeOutcome.Changed => Ok(result.Task),
             TaskStatusChangeOutcome.NotFound => NotFound(),
             TaskStatusChangeOutcome.Forbidden => StatusCode(StatusCodes.Status403Forbidden, new { message = "Your project roles do not permit this transition.", requestedStatus = request.Status, requiredRoles = result.RequiredRoles, allowedTransitions = result.AllowedTransitions }),
+            TaskStatusChangeOutcome.IncompleteSubtasks => Conflict(new { message = "Complete or cancel every subtask before resolving or closing the parent task.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions }),
             _ => Conflict(new { message = "This workflow transition is not allowed.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions })
         };
     }

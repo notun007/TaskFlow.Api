@@ -8,7 +8,7 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Application.Tasks;
 
-public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName, Guid? EpicId, string? EpicName, Guid? FeatureId, string? FeatureName);
+public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName, Guid? EpicId, string? EpicName, Guid? FeatureId, string? FeatureName, Guid? ParentTaskId, string? ParentTaskNumber, int SubtaskCount, int CompletedSubtaskCount);
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 public sealed record SaveTaskCustomFieldValueRequest(Guid CustomFieldDefinitionId, string? Value);
 public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
@@ -21,7 +21,8 @@ public sealed record TaskCustomFieldValueItem(Guid CustomFieldDefinitionId, stri
 public sealed record AddTaskLinkRequest(TaskLinkType Type, string TargetTaskReference);
 public sealed record TaskLinkItem(Guid Id, TaskLinkType Type, bool IsOutgoing, Guid OtherTaskId, string OtherTaskNumber, string OtherTaskTitle, WorkflowStatus OtherTaskStatus);
 public sealed record TaskAttachmentItem(Guid Id, string FileName, string ContentType, long Size, string UploadedBy, DateTimeOffset CreatedAt);
-public enum TaskStatusChangeOutcome { Changed, NotFound, InvalidTransition, Forbidden }
+public sealed record SubtaskItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, Guid? SprintId, string? SprintName);
+public enum TaskStatusChangeOutcome { Changed, NotFound, InvalidTransition, Forbidden, IncompleteSubtasks }
 public sealed record TaskStatusChangeResult(TaskStatusChangeOutcome Outcome, TaskDetails? Task, IReadOnlyList<WorkflowStatus> AllowedTransitions, IReadOnlyList<ProjectRole> RequiredRoles);
 public sealed record TaskDetails(
     Guid Id,
@@ -38,6 +39,9 @@ public sealed record TaskDetails(
     string? EpicName,
     Guid? FeatureId,
     string? FeatureName,
+    Guid? ParentTaskId,
+    string? ParentTaskNumber,
+    string? ParentTaskTitle,
     DateTimeOffset? DueDate,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
@@ -47,7 +51,8 @@ public sealed record TaskDetails(
     IReadOnlyList<TaskLinkItem> Links,
     IReadOnlyList<TaskAttachmentItem> Attachments,
     IReadOnlyList<TaskAssignmentItem> Assignments,
-    IReadOnlyList<TaskCommentItem> Comments);
+    IReadOnlyList<TaskCommentItem> Comments,
+    IReadOnlyList<SubtaskItem> Subtasks);
 
 public interface ITaskService
 {
@@ -95,26 +100,30 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 5, 100);
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(x => new TaskListItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.DueDate, x.Project!.Name, x.EpicId, x.Epic != null ? x.Epic.Name : null, x.FeatureId, x.Feature != null ? x.Feature.Name : null))
+            .Select(x => new TaskListItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.DueDate, x.Project!.Name, x.EpicId, x.Epic != null ? x.Epic.Name : null, x.FeatureId, x.Feature != null ? x.Feature.Name : null, x.ParentTaskId, x.ParentTask != null ? x.ParentTask.TaskNumber : null, x.Subtasks.Count(t => !t.IsDeleted), x.Subtasks.Count(t => !t.IsDeleted && (t.Status == WorkflowStatus.Resolved || t.Status == WorkflowStatus.Closed || t.Status == WorkflowStatus.Rejected || t.Status == WorkflowStatus.Cancelled))))
             .ToListAsync(cancellationToken);
         return new PagedResult<TaskListItem>(items, totalCount, page, pageSize);
     }
 
     public async Task<TaskDetails?> GetAsync(Guid id, CancellationToken cancellationToken, Guid? userId = null)
     {
+        // Keep the root query small. Joining every collection multiplies comments,
+        // history, assignments, links, fields, and subtasks into a large Oracle
+        // result set; the collections are deliberately loaded below as small queries.
         var task = await db.Tasks.AsNoTracking()
             .Include(x => x.Project)
             .Include(x => x.Epic)
             .Include(x => x.Feature)
-            .Include(x => x.Assignments)
-            .Include(x => x.Comments)
-            .Include(x => x.StatusHistory)
-            .Include(x => x.CustomFieldValues).ThenInclude(x => x.CustomFieldDefinition).ThenInclude(x => x.Options)
-            .Include(x => x.CustomFieldValues).ThenInclude(x => x.CustomFieldDefinition).ThenInclude(x => x.Contexts).ThenInclude(x => x.WorkItemType)
-            .Include(x => x.OutgoingLinks).ThenInclude(x => x.TargetTask)
-            .Include(x => x.IncomingLinks).ThenInclude(x => x.SourceTask)
+            .Include(x => x.ParentTask)
             .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
         if (task is null) return null;
+        var history = await db.TaskStatusHistory.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).OrderByDescending(x => x.CreatedAt).Select(x => new TaskStatusHistoryItem(x.Id, x.FromStatus, x.ToStatus, x.ActorReference, x.Comment, x.CreatedAt)).ToArrayAsync(cancellationToken);
+        var fieldValues = await db.TaskCustomFieldValues.AsNoTracking().Include(x => x.CustomFieldDefinition).ThenInclude(x => x.Options).Include(x => x.CustomFieldDefinition).ThenInclude(x => x.Contexts).ThenInclude(x => x.WorkItemType).Where(x => x.TaskItemId == id && !x.IsDeleted).ToArrayAsync(cancellationToken);
+        var outgoingLinks = await db.TaskLinks.AsNoTracking().Include(x => x.TargetTask).Where(x => x.SourceTaskId == id && !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, true, x.TargetTaskId, x.TargetTask.TaskNumber, x.TargetTask.Title, x.TargetTask.Status)).ToArrayAsync(cancellationToken);
+        var incomingLinks = await db.TaskLinks.AsNoTracking().Include(x => x.SourceTask).Where(x => x.TargetTaskId == id && !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, false, x.SourceTaskId, x.SourceTask.TaskNumber, x.SourceTask.Title, x.SourceTask.Status)).ToArrayAsync(cancellationToken);
+        var assignments = await db.TaskAssignments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).Select(x => new TaskAssignmentItem(x.Id, x.Responsibility, x.PartyReference, x.DisplayName)).ToArrayAsync(cancellationToken);
+        var comments = await db.TaskComments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new TaskCommentItem(x.Id, x.AuthorReference, x.Body, x.CreatedAt)).ToArrayAsync(cancellationToken);
+        var subtasks = await db.Tasks.AsNoTracking().Where(x => x.ParentTaskId == id && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SubtaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.SprintId, x.Sprint != null ? x.Sprint.Name : null)).ToArrayAsync(cancellationToken);
         var attachments = await db.TaskAttachments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).OrderByDescending(x => x.CreatedAt).Select(x => new TaskAttachmentItem(x.Id, x.FileName, x.ContentType, x.Size, x.UploadedBy, x.CreatedAt)).ToArrayAsync(cancellationToken);
 
         return new TaskDetails(
@@ -132,17 +141,20 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             task.Epic != null ? task.Epic.Name : null,
             task.FeatureId,
             task.Feature != null ? task.Feature.Name : null,
+            task.ParentTaskId,
+            task.ParentTask?.TaskNumber,
+            task.ParentTask?.Title,
             task.DueDate,
             task.CreatedAt,
             task.UpdatedAt,
             await AllowedTransitionsAsync(task.ProjectId, task.Status, userId, cancellationToken),
-            task.StatusHistory.OrderByDescending(x => x.CreatedAt).Select(x => new TaskStatusHistoryItem(x.Id, x.FromStatus, x.ToStatus, x.ActorReference, x.Comment, x.CreatedAt)).ToArray(),
-            task.CustomFieldValues.Where(x => !x.IsDeleted && x.CustomFieldDefinition.Contexts.Any(c => !c.IsDeleted && c.ShowOnDetails && (c.WorkItemTypeId == null || c.WorkItemType!.Key == task.Type))).OrderBy(x => x.CustomFieldDefinition.SortOrder).Select(x => new TaskCustomFieldValueItem(x.CustomFieldDefinitionId, x.CustomFieldDefinition.Key, x.CustomFieldDefinition.Name, x.CustomFieldDefinition.Type.ToString(), x.Value, DisplayValues(x))).ToArray(),
-            task.OutgoingLinks.Where(x => !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, true, x.TargetTaskId, x.TargetTask.TaskNumber, x.TargetTask.Title, x.TargetTask.Status))
-                .Concat(task.IncomingLinks.Where(x => !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, false, x.SourceTaskId, x.SourceTask.TaskNumber, x.SourceTask.Title, x.SourceTask.Status))).ToArray(),
+            history,
+            fieldValues.Where(x => x.CustomFieldDefinition.Contexts.Any(c => !c.IsDeleted && c.ShowOnDetails && (c.WorkItemTypeId == null || c.WorkItemType!.Key == task.Type))).OrderBy(x => x.CustomFieldDefinition.SortOrder).Select(x => new TaskCustomFieldValueItem(x.CustomFieldDefinitionId, x.CustomFieldDefinition.Key, x.CustomFieldDefinition.Name, x.CustomFieldDefinition.Type.ToString(), x.Value, DisplayValues(x))).ToArray(),
+            outgoingLinks.Concat(incomingLinks).ToArray(),
             attachments,
-            task.Assignments.Where(x => !x.IsDeleted).Select(x => new TaskAssignmentItem(x.Id, x.Responsibility, x.PartyReference, x.DisplayName)).ToArray(),
-            task.Comments.OrderBy(x => x.CreatedAt).Select(x => new TaskCommentItem(x.Id, x.AuthorReference, x.Body, x.CreatedAt)).ToArray());
+            assignments,
+            comments,
+            subtasks);
     }
 
     public async Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken)
@@ -196,6 +208,9 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             return new(TaskStatusChangeOutcome.InvalidTransition, null, allowed, []);
         if (!allowed.Contains(status))
             return new(TaskStatusChangeOutcome.Forbidden, null, allowed, await RequiredRolesAsync(task.Status, status, cancellationToken));
+        if (task.ParentTaskId is null && (status == WorkflowStatus.Resolved || status == WorkflowStatus.Closed) &&
+            await db.Tasks.AnyAsync(x => x.ParentTaskId == id && !x.IsDeleted && x.Status != WorkflowStatus.Resolved && x.Status != WorkflowStatus.Closed && x.Status != WorkflowStatus.Rejected && x.Status != WorkflowStatus.Cancelled, cancellationToken))
+            return new(TaskStatusChangeOutcome.IncompleteSubtasks, null, allowed, []);
         var fromStatus = task.Status;
         var transitionComment = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
         if (transitionComment?.Length > 2000) transitionComment = transitionComment[..2000];

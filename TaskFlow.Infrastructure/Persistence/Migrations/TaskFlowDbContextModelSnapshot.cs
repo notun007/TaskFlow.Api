@@ -935,6 +935,9 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("NUMBER(1)");
 
+                    b.Property<Guid?>("ParentTaskId")
+                        .HasColumnType("RAW(16)");
+
                     b.Property<string>("Priority")
                         .IsRequired()
                         .HasColumnType("NVARCHAR2(2000)");
@@ -998,6 +1001,8 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.HasIndex("FeatureId");
 
                     b.HasIndex("FixVersionId");
+
+                    b.HasIndex("ParentTaskId");
 
                     b.HasIndex("ProjectId");
 
@@ -2992,6 +2997,11 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                         .WithMany("Tasks")
                         .HasForeignKey("FixVersionId");
 
+                    b.HasOne("TaskFlow.Domain.Entities.TaskItem", "ParentTask")
+                        .WithMany("Subtasks")
+                        .HasForeignKey("ParentTaskId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("TaskFlow.Domain.Entities.Project", "Project")
                         .WithMany("Tasks")
                         .HasForeignKey("ProjectId")
@@ -3011,6 +3021,8 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("Feature");
 
                     b.Navigation("FixVersion");
+
+                    b.Navigation("ParentTask");
 
                     b.Navigation("Project");
 
@@ -3160,6 +3172,8 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Navigation("OutgoingLinks");
 
                     b.Navigation("StatusHistory");
+
+                    b.Navigation("Subtasks");
                 });
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.WorkflowScheme", b =>

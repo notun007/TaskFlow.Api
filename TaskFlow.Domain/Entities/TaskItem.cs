@@ -21,6 +21,9 @@ public sealed class TaskItem : Entity
     public Feature? Feature { get; set; }
     public Guid? SprintId { get; set; }
     public Sprint? Sprint { get; set; }
+    public Guid? ParentTaskId { get; set; }
+    public TaskItem? ParentTask { get; set; }
+    public ICollection<TaskItem> Subtasks { get; set; } = [];
     public Guid? FixVersionId { get; set; }
     public ProjectRelease? FixVersion { get; set; }
     public Guid? SoftwareApplicationId { get; set; }
