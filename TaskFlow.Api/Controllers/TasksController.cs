@@ -8,17 +8,19 @@ using TaskFlow.Domain.Enums;
 using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
+using TaskFlow.Infrastructure.Identity;
 
 namespace TaskFlow.Api.Controllers;
 
 public sealed record AddTaskCommentRequest(string Body);
 public sealed record ChangeTaskStatusRequest(WorkflowStatus Status, string? Comment, bool RequireActiveSprint = false);
-public sealed record CreateSubtaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, DateTimeOffset? DueDate, Guid? SprintId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
+public sealed record CreateSubtaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, DateTimeOffset? DueDate, Guid? SprintId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields, Guid? OwnerUserId = null, int? EstimatedEffortMinutes = null);
 
 [ApiController]
 [Route("api/tasks")]
 [Authorize]
-public sealed class TasksController(ITaskService service, IApplicationDbContext db) : ControllerBase
+public sealed class TasksController(ITaskService service, IApplicationDbContext db, UserManager<ApplicationUser> userManager) : ControllerBase
 {
     private const long MaxAttachmentSize = 10 * 1024 * 1024;
     private static readonly HashSet<string> AllowedAttachmentTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -50,7 +52,11 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
     [HttpPost]
     public async Task<ActionResult> Create(CreateTaskRequest request, CancellationToken cancellationToken)
     {
-        var task = await service.CreateAsync(request, User.Identity?.Name ?? "system", cancellationToken);
+        var identity = await CurrentIdentity(cancellationToken);
+        if (identity is null) return Unauthorized();
+        var ownerName = await ResolveOwnerName(request.ProjectId, request.OwnerUserId, cancellationToken);
+        if (request.OwnerUserId.HasValue && ownerName is null) return BadRequest(new { message = "Owner must be an active member of the selected project." });
+        var task = await service.CreateAsync(request, User.Identity?.Name ?? "system", identity.Value.Id, identity.Value.Name, ownerName, cancellationToken);
         if (task is null) return BadRequest(new { message = "A title and active work item type are required." });
         return CreatedAtAction(nameof(Get), new { id = task.Id }, task);
     }
@@ -63,7 +69,11 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         if (parent.ParentTaskId.HasValue) return Conflict(new { message = "A subtask cannot have child tasks. Only one subtask level is allowed." });
         if (request.SprintId.HasValue && !await db.Sprints.AnyAsync(x => x.Id == request.SprintId && x.ProjectId == parent.ProjectId && !x.IsDeleted && x.Status != SprintStatus.Completed, cancellationToken))
             return BadRequest(new { message = "Select a planned or active sprint from the parent task's project." });
-        var created = await service.CreateAsync(new CreateTaskRequest(request.Title, request.Description, request.Type, request.Priority, request.Severity, parent.ProjectId, parent.SoftwareApplicationId, request.DueDate, parent.EpicId, parent.FeatureId, request.CustomFields), User.Identity?.Name ?? "system", cancellationToken);
+        var identity = await CurrentIdentity(cancellationToken);
+        if (identity is null) return Unauthorized();
+        var ownerName = await ResolveOwnerName(parent.ProjectId, request.OwnerUserId, cancellationToken);
+        if (request.OwnerUserId.HasValue && ownerName is null) return BadRequest(new { message = "Owner must be an active member of the selected project." });
+        var created = await service.CreateAsync(new CreateTaskRequest(request.Title, request.Description, request.Type, request.Priority, request.Severity, parent.ProjectId, parent.SoftwareApplicationId, request.DueDate, parent.EpicId, parent.FeatureId, request.CustomFields, request.OwnerUserId, request.EstimatedEffortMinutes), User.Identity?.Name ?? "system", identity.Value.Id, identity.Value.Name, ownerName, cancellationToken);
         if (created is null) return BadRequest(new { message = "A title, valid work item type, and valid required fields are required." });
         created.ParentTaskId = parent.Id;
         created.SprintId = request.SprintId;
@@ -73,8 +83,12 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
     }
 
     [HttpPut("{id:guid}")]
-    public async Task<ActionResult<TaskDetails>> Update(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken) =>
-        (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", cancellationToken)) is { } task ? Ok(task) : NotFound();
+    public async Task<ActionResult<TaskDetails>> Update(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken)
+    {
+        var ownerName = await ResolveOwnerName(request.ProjectId, request.OwnerUserId, cancellationToken);
+        if (request.OwnerUserId.HasValue && ownerName is null) return BadRequest(new { message = "Owner must be an active member of the selected project." });
+        return (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", ownerName, cancellationToken)) is { } task ? Ok(task) : BadRequest(new { message = "Task data is invalid." });
+    }
 
     [HttpPatch("{id:guid}/status")]
     public async Task<ActionResult<TaskDetails>> ChangeStatus(Guid id, ChangeTaskStatusRequest request, CancellationToken cancellationToken)
@@ -163,5 +177,22 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
     {
         var value = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(value, out var userId) ? userId : null;
+    }
+
+    private async Task<(Guid Id, string Name)?> CurrentIdentity(CancellationToken cancellationToken)
+    {
+        var userId = CurrentUserId();
+        if (!userId.HasValue) return null;
+        var user = await userManager.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == userId.Value && x.IsActive, cancellationToken);
+        return user is null ? null : (user.Id, string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email ?? "Unknown user" : user.DisplayName);
+    }
+
+    private async Task<string?> ResolveOwnerName(Guid projectId, Guid? ownerUserId, CancellationToken cancellationToken)
+    {
+        if (!ownerUserId.HasValue) return null;
+        var isProjectMember = await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == projectId && x.UserId == ownerUserId.Value && !x.IsDeleted, cancellationToken);
+        if (!isProjectMember) return null;
+        var user = await userManager.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ownerUserId.Value && x.IsActive, cancellationToken);
+        return user is null ? null : string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email : user.DisplayName;
     }
 }

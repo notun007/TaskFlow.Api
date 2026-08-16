@@ -28,6 +28,11 @@ public sealed class TaskItem : Entity
     public ProjectRelease? FixVersion { get; set; }
     public Guid? SoftwareApplicationId { get; set; }
     public SoftwareApplication? SoftwareApplication { get; set; }
+    public Guid? OwnerUserId { get; set; }
+    public string? OwnerDisplayName { get; set; }
+    public Guid? ReporterUserId { get; set; }
+    public string? ReporterDisplayName { get; set; }
+    public int? EstimatedEffortMinutes { get; set; }
     public string? Environment { get; set; }
     public DateTimeOffset? DueDate { get; set; }
     public DateTimeOffset? SlaDueDate { get; set; }

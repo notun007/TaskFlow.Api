@@ -917,6 +917,9 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<string>("Environment")
                         .HasColumnType("NVARCHAR2(2000)");
 
+                    b.Property<int?>("EstimatedEffortMinutes")
+                        .HasColumnType("NUMBER(10)");
+
                     b.Property<Guid?>("EpicId")
                         .HasColumnType("RAW(16)");
 
@@ -935,6 +938,12 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("NUMBER(1)");
 
+                    b.Property<string>("OwnerDisplayName")
+                        .HasColumnType("NVARCHAR2(2000)");
+
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("RAW(16)");
+
                     b.Property<Guid?>("ParentTaskId")
                         .HasColumnType("RAW(16)");
 
@@ -950,6 +959,12 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Resolution")
                         .HasColumnType("NVARCHAR2(2000)");
+
+                    b.Property<string>("ReporterDisplayName")
+                        .HasColumnType("NVARCHAR2(2000)");
+
+                    b.Property<Guid?>("ReporterUserId")
+                        .HasColumnType("RAW(16)");
 
                     b.Property<string>("RootCause")
                         .HasColumnType("NVARCHAR2(2000)");
@@ -1004,7 +1019,11 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ParentTaskId");
 
+                    b.HasIndex("OwnerUserId");
+
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("ReporterUserId");
 
                     b.HasIndex("SoftwareApplicationId");
 
@@ -2983,6 +3002,16 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TaskFlow.Domain.Entities.TaskItem", b =>
                 {
+                    b.HasOne("TaskFlow.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("TaskFlow.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ReporterUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("TaskFlow.Domain.Entities.Epic", "Epic")
                         .WithMany("Tasks")
                         .HasForeignKey("EpicId")

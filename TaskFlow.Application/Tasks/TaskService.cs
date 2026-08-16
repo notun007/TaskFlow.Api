@@ -8,11 +8,11 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Application.Tasks;
 
-public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName, Guid? EpicId, string? EpicName, Guid? FeatureId, string? FeatureName, Guid? ParentTaskId, string? ParentTaskNumber, int SubtaskCount, int CompletedSubtaskCount);
+public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, DateTimeOffset? DueDate, string ProjectName, Guid? EpicId, string? EpicName, Guid? FeatureId, string? FeatureName, Guid? ParentTaskId, string? ParentTaskNumber, int SubtaskCount, int CompletedSubtaskCount, Guid? OwnerUserId, string? OwnerDisplayName, Guid? ReporterUserId, string? ReporterDisplayName, int? EstimatedEffortMinutes);
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 public sealed record SaveTaskCustomFieldValueRequest(Guid CustomFieldDefinitionId, string? Value);
-public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
-public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields);
+public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields, Guid? OwnerUserId = null, int? EstimatedEffortMinutes = null);
+public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields, Guid? OwnerUserId = null, int? EstimatedEffortMinutes = null);
 public sealed record AddTaskAssignmentRequest(ResponsibilityType Responsibility, string PartyReference, string? DisplayName);
 public sealed record TaskAssignmentItem(Guid Id, ResponsibilityType Responsibility, string PartyReference, string? DisplayName);
 public sealed record TaskCommentItem(Guid Id, string AuthorReference, string Body, DateTimeOffset CreatedAt);
@@ -21,7 +21,7 @@ public sealed record TaskCustomFieldValueItem(Guid CustomFieldDefinitionId, stri
 public sealed record AddTaskLinkRequest(TaskLinkType Type, string TargetTaskReference);
 public sealed record TaskLinkItem(Guid Id, TaskLinkType Type, bool IsOutgoing, Guid OtherTaskId, string OtherTaskNumber, string OtherTaskTitle, WorkflowStatus OtherTaskStatus);
 public sealed record TaskAttachmentItem(Guid Id, string FileName, string ContentType, long Size, string UploadedBy, DateTimeOffset CreatedAt);
-public sealed record SubtaskItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, Guid? SprintId, string? SprintName);
+public sealed record SubtaskItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, Guid? SprintId, string? SprintName, Guid? OwnerUserId, string? OwnerDisplayName, int? EstimatedEffortMinutes);
 public enum TaskStatusChangeOutcome { Changed, NotFound, InvalidTransition, Forbidden, IncompleteSubtasks }
 public sealed record TaskStatusChangeResult(TaskStatusChangeOutcome Outcome, TaskDetails? Task, IReadOnlyList<WorkflowStatus> AllowedTransitions, IReadOnlyList<ProjectRole> RequiredRoles);
 public sealed record TaskDetails(
@@ -42,6 +42,11 @@ public sealed record TaskDetails(
     Guid? ParentTaskId,
     string? ParentTaskNumber,
     string? ParentTaskTitle,
+    Guid? OwnerUserId,
+    string? OwnerDisplayName,
+    Guid? ReporterUserId,
+    string? ReporterDisplayName,
+    int? EstimatedEffortMinutes,
     DateTimeOffset? DueDate,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
@@ -58,8 +63,8 @@ public interface ITaskService
 {
     Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, Guid? epicId, string? epicAssignment, Guid? featureId, string? featureAssignment, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken);
     Task<TaskDetails?> GetAsync(Guid id, CancellationToken cancellationToken, Guid? userId = null);
-    Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken);
-    Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, CancellationToken cancellationToken);
+    Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, Guid reporterUserId, string reporterDisplayName, string? ownerDisplayName, CancellationToken cancellationToken);
+    Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, string? ownerDisplayName, CancellationToken cancellationToken);
     Task<TaskStatusChangeResult> ChangeStatusAsync(Guid id, WorkflowStatus status, string? comment, string actor, CancellationToken cancellationToken, Guid? userId = null);
     Task<TaskCommentItem?> AddCommentAsync(Guid id, string body, string actor, CancellationToken cancellationToken);
     Task<TaskAssignmentItem?> AddAssignmentAsync(Guid id, AddTaskAssignmentRequest request, string actor, CancellationToken cancellationToken);
@@ -100,7 +105,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 5, 100);
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(x => new TaskListItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.DueDate, x.Project!.Name, x.EpicId, x.Epic != null ? x.Epic.Name : null, x.FeatureId, x.Feature != null ? x.Feature.Name : null, x.ParentTaskId, x.ParentTask != null ? x.ParentTask.TaskNumber : null, x.Subtasks.Count(t => !t.IsDeleted), x.Subtasks.Count(t => !t.IsDeleted && (t.Status == WorkflowStatus.Resolved || t.Status == WorkflowStatus.Closed || t.Status == WorkflowStatus.Rejected || t.Status == WorkflowStatus.Cancelled))))
+            .Select(x => new TaskListItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.DueDate, x.Project!.Name, x.EpicId, x.Epic != null ? x.Epic.Name : null, x.FeatureId, x.Feature != null ? x.Feature.Name : null, x.ParentTaskId, x.ParentTask != null ? x.ParentTask.TaskNumber : null, x.Subtasks.Count(t => !t.IsDeleted), x.Subtasks.Count(t => !t.IsDeleted && (t.Status == WorkflowStatus.Resolved || t.Status == WorkflowStatus.Closed || t.Status == WorkflowStatus.Rejected || t.Status == WorkflowStatus.Cancelled)), x.OwnerUserId, x.OwnerDisplayName, x.ReporterUserId, x.ReporterDisplayName, x.EstimatedEffortMinutes))
             .ToListAsync(cancellationToken);
         return new PagedResult<TaskListItem>(items, totalCount, page, pageSize);
     }
@@ -123,7 +128,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         var incomingLinks = await db.TaskLinks.AsNoTracking().Include(x => x.SourceTask).Where(x => x.TargetTaskId == id && !x.IsDeleted).Select(x => new TaskLinkItem(x.Id, x.Type, false, x.SourceTaskId, x.SourceTask.TaskNumber, x.SourceTask.Title, x.SourceTask.Status)).ToArrayAsync(cancellationToken);
         var assignments = await db.TaskAssignments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).Select(x => new TaskAssignmentItem(x.Id, x.Responsibility, x.PartyReference, x.DisplayName)).ToArrayAsync(cancellationToken);
         var comments = await db.TaskComments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new TaskCommentItem(x.Id, x.AuthorReference, x.Body, x.CreatedAt)).ToArrayAsync(cancellationToken);
-        var subtasks = await db.Tasks.AsNoTracking().Where(x => x.ParentTaskId == id && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SubtaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.SprintId, x.Sprint != null ? x.Sprint.Name : null)).ToArrayAsync(cancellationToken);
+        var subtasks = await db.Tasks.AsNoTracking().Where(x => x.ParentTaskId == id && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SubtaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status, x.Priority, x.SprintId, x.Sprint != null ? x.Sprint.Name : null, x.OwnerUserId, x.OwnerDisplayName, x.EstimatedEffortMinutes)).ToArrayAsync(cancellationToken);
         var attachments = await db.TaskAttachments.AsNoTracking().Where(x => x.TaskItemId == id && !x.IsDeleted).OrderByDescending(x => x.CreatedAt).Select(x => new TaskAttachmentItem(x.Id, x.FileName, x.ContentType, x.Size, x.UploadedBy, x.CreatedAt)).ToArrayAsync(cancellationToken);
 
         return new TaskDetails(
@@ -144,6 +149,11 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             task.ParentTaskId,
             task.ParentTask?.TaskNumber,
             task.ParentTask?.Title,
+            task.OwnerUserId,
+            task.OwnerDisplayName,
+            task.ReporterUserId,
+            task.ReporterDisplayName,
+            task.EstimatedEffortMinutes,
             task.DueDate,
             task.CreatedAt,
             task.UpdatedAt,
@@ -157,7 +167,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             subtasks);
     }
 
-    public async Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, CancellationToken cancellationToken)
+    public async Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, Guid reporterUserId, string reporterDisplayName, string? ownerDisplayName, CancellationToken cancellationToken)
     {
         var type = request.Type.Trim();
         if (string.IsNullOrWhiteSpace(request.Title) || !await db.WorkItemTypes.AnyAsync(item => !item.IsDeleted && item.IsActive && item.Key == type, cancellationToken)) return null;
@@ -165,15 +175,16 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (!ValidateCustomFields(fields, request.CustomFields, true)) return null;
         var hierarchy = await ResolveHierarchy(request.ProjectId, request.EpicId, request.FeatureId, cancellationToken); if (!hierarchy.Valid) return null;
         var initialStatus = await InitialStatusAsync(request.ProjectId, cancellationToken);
-        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, EpicId = hierarchy.EpicId, FeatureId = request.FeatureId, Status = initialStatus };
+        if (request.EstimatedEffortMinutes is <= 0 or > 525600) return null;
+        var task = new TaskItem { TaskNumber = $"TF-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..27].ToUpperInvariant(), Title = request.Title.Trim(), Description = request.Description, Type = type, Priority = request.Priority, Severity = request.Severity, ProjectId = request.ProjectId, SoftwareApplicationId = request.SoftwareApplicationId, DueDate = request.DueDate, EpicId = hierarchy.EpicId, FeatureId = request.FeatureId, Status = initialStatus, OwnerUserId = request.OwnerUserId, OwnerDisplayName = ownerDisplayName, ReporterUserId = reporterUserId, ReporterDisplayName = reporterDisplayName, EstimatedEffortMinutes = request.EstimatedEffortMinutes };
         db.Tasks.Add(task);
         SyncCustomFields(task, fields, request.CustomFields, true);
-        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = task.Id.ToString(), Action = "Created", ActorReference = actor });
+        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = task.Id.ToString(), Action = "Created", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { task.OwnerUserId, task.ReporterUserId, task.EstimatedEffortMinutes }) });
         await db.SaveChangesAsync(cancellationToken);
         return task;
     }
 
-    public async Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, CancellationToken cancellationToken)
+    public async Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, string? ownerDisplayName, CancellationToken cancellationToken)
     {
         var task = await db.Tasks.Include(x => x.CustomFieldValues).FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
         if (task is null || string.IsNullOrWhiteSpace(request.Title)) return null;
@@ -182,6 +193,9 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         var fields = await ApplicableFields(type, cancellationToken);
         if (!ValidateCustomFields(fields, request.CustomFields, false)) return null;
         var hierarchy = await ResolveHierarchy(request.ProjectId, request.EpicId, request.FeatureId, cancellationToken); if (!hierarchy.Valid) return null;
+        if (request.EstimatedEffortMinutes is <= 0 or > 525600) return null;
+        var previousOwnerUserId = task.OwnerUserId;
+        var previousEffort = task.EstimatedEffortMinutes;
         task.Title = request.Title.Trim();
         task.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         task.Type = type;
@@ -192,8 +206,11 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         task.DueDate = request.DueDate;
         task.EpicId = hierarchy.EpicId;
         task.FeatureId = request.FeatureId;
+        task.OwnerUserId = request.OwnerUserId;
+        task.OwnerDisplayName = ownerDisplayName;
+        task.EstimatedEffortMinutes = request.EstimatedEffortMinutes;
         SyncCustomFields(task, fields, request.CustomFields, false);
-        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "Updated", ActorReference = actor });
+        db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "Updated", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { previousOwnerUserId, ownerUserId = task.OwnerUserId, previousEffort, estimatedEffortMinutes = task.EstimatedEffortMinutes }) });
         await db.SaveChangesAsync(cancellationToken);
         return await GetAsync(id, cancellationToken);
     }
@@ -233,6 +250,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
 
     public async Task<TaskAssignmentItem?> AddAssignmentAsync(Guid id, AddTaskAssignmentRequest request, string actor, CancellationToken cancellationToken)
     {
+        if (request.Responsibility is ResponsibilityType.Owner or ResponsibilityType.Reporter) return null;
         var partyReference = request.PartyReference.Trim();
         if (string.IsNullOrWhiteSpace(partyReference) || !await db.Tasks.AnyAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)) return null;
         var existing = await db.TaskAssignments.FirstOrDefaultAsync(x => x.TaskItemId == id && x.Responsibility == request.Responsibility && x.PartyReference == partyReference && !x.IsDeleted, cancellationToken);
