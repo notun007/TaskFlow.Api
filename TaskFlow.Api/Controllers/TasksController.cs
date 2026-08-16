@@ -110,6 +110,7 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
             TaskStatusChangeOutcome.NotFound => NotFound(),
             TaskStatusChangeOutcome.Forbidden => StatusCode(StatusCodes.Status403Forbidden, new { message = "Your project roles do not permit this transition.", requestedStatus = request.Status, requiredRoles = result.RequiredRoles, allowedTransitions = result.AllowedTransitions }),
             TaskStatusChangeOutcome.IncompleteSubtasks => Conflict(new { message = "Complete or cancel every subtask before resolving or closing the parent task.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions }),
+            TaskStatusChangeOutcome.ReasonRequired => BadRequest(new { message = "Enter a reason before returning or reopening this task.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions }),
             _ => Conflict(new { message = "This workflow transition is not allowed.", requestedStatus = request.Status, allowedTransitions = result.AllowedTransitions })
         };
     }

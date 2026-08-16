@@ -5,6 +5,17 @@ namespace TaskFlow.Domain.Workflow;
 
 public static class DefaultTaskWorkflow
 {
+    private static readonly HashSet<(WorkflowStatus From, WorkflowStatus To)> CorrectionTransitions =
+    [
+        (WorkflowStatus.ReadyForTesting, WorkflowStatus.InProgress),
+        (WorkflowStatus.ReadyForTesting, WorkflowStatus.Reopened),
+        (WorkflowStatus.Uat, WorkflowStatus.InProgress),
+        (WorkflowStatus.Uat, WorkflowStatus.Reopened),
+        (WorkflowStatus.Resolved, WorkflowStatus.Reopened),
+        (WorkflowStatus.Closed, WorkflowStatus.Reopened),
+        (WorkflowStatus.Rejected, WorkflowStatus.Reopened),
+        (WorkflowStatus.Cancelled, WorkflowStatus.Reopened)
+    ];
     private static readonly IReadOnlyDictionary<WorkflowStatus, WorkflowStatus[]> Transitions =
         new Dictionary<WorkflowStatus, WorkflowStatus[]>
         {
@@ -30,6 +41,9 @@ public static class DefaultTaskWorkflow
 
     public static bool CanTransition(WorkflowStatus current, WorkflowStatus target) =>
         AllowedTransitions(current).Contains(target);
+
+    public static bool IsCorrectionTransition(WorkflowStatus current, WorkflowStatus target) =>
+        CorrectionTransitions.Contains((current, target));
 
     public static IReadOnlyList<(WorkflowStatus From, WorkflowStatus To)> AllTransitions =>
         Transitions.SelectMany(pair => pair.Value.Select(target => (pair.Key, target))).ToArray();

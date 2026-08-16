@@ -22,7 +22,7 @@ public sealed record AddTaskLinkRequest(TaskLinkType Type, string TargetTaskRefe
 public sealed record TaskLinkItem(Guid Id, TaskLinkType Type, bool IsOutgoing, Guid OtherTaskId, string OtherTaskNumber, string OtherTaskTitle, WorkflowStatus OtherTaskStatus);
 public sealed record TaskAttachmentItem(Guid Id, string FileName, string ContentType, long Size, string UploadedBy, DateTimeOffset CreatedAt);
 public sealed record SubtaskItem(Guid Id, string TaskNumber, string Title, string Type, WorkflowStatus Status, Priority Priority, Guid? SprintId, string? SprintName, Guid? OwnerUserId, string? OwnerDisplayName, int? EstimatedEffortMinutes);
-public enum TaskStatusChangeOutcome { Changed, NotFound, InvalidTransition, Forbidden, IncompleteSubtasks }
+public enum TaskStatusChangeOutcome { Changed, NotFound, InvalidTransition, Forbidden, IncompleteSubtasks, ReasonRequired }
 public sealed record TaskStatusChangeResult(TaskStatusChangeOutcome Outcome, TaskDetails? Task, IReadOnlyList<WorkflowStatus> AllowedTransitions, IReadOnlyList<ProjectRole> RequiredRoles);
 public sealed record TaskDetails(
     Guid Id,
@@ -224,12 +224,15 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (!workflowAllowed.Contains(status))
             return new(TaskStatusChangeOutcome.InvalidTransition, null, allowed, []);
         if (!allowed.Contains(status))
-            return new(TaskStatusChangeOutcome.Forbidden, null, allowed, await RequiredRolesAsync(task.Status, status, cancellationToken));
+            return new(TaskStatusChangeOutcome.Forbidden, null, allowed, await RequiredRolesAsync(task.ProjectId, task.Status, status, cancellationToken));
+        var transitionComment = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
+        if ((DefaultTaskWorkflow.IsCorrectionTransition(task.Status, status) ||
+             await IsDerivedReverseTransitionAsync(task.ProjectId, task.Status, status, cancellationToken)) && transitionComment is null)
+            return new(TaskStatusChangeOutcome.ReasonRequired, null, allowed, []);
         if (task.ParentTaskId is null && (status == WorkflowStatus.Resolved || status == WorkflowStatus.Closed) &&
             await db.Tasks.AnyAsync(x => x.ParentTaskId == id && !x.IsDeleted && x.Status != WorkflowStatus.Resolved && x.Status != WorkflowStatus.Closed && x.Status != WorkflowStatus.Rejected && x.Status != WorkflowStatus.Cancelled, cancellationToken))
             return new(TaskStatusChangeOutcome.IncompleteSubtasks, null, allowed, []);
         var fromStatus = task.Status;
-        var transitionComment = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
         if (transitionComment?.Length > 2000) transitionComment = transitionComment[..2000];
         task.Status = status; task.UpdatedAt = DateTimeOffset.UtcNow;
         db.TaskStatusHistory.Add(new TaskStatusHistory { TaskItemId = id, FromStatus = fromStatus, ToStatus = status, ActorReference = actor, Comment = transitionComment });
@@ -324,8 +327,15 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
     {
         var schemeId = await db.WorkflowSchemes.Where(x => x.ProjectId == projectId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
             ?? await db.WorkflowSchemes.Where(x => x.IsDefault).Select(x => (Guid?)x.Id).SingleAsync(cancellationToken);
-        return await db.WorkflowTransitions.AsNoTracking().Where(x => x.WorkflowSchemeId == schemeId && x.FromStatus == current)
-            .OrderBy(x => x.SortOrder).Select(x => x.ToStatus).ToListAsync(cancellationToken);
+        var edges = await db.WorkflowTransitions.AsNoTracking()
+            .Where(x => x.WorkflowSchemeId == schemeId && (x.FromStatus == current || x.ToStatus == current))
+            .OrderBy(x => x.SortOrder)
+            .Select(x => new { x.FromStatus, x.ToStatus })
+            .ToListAsync(cancellationToken);
+        var targets = edges.Where(x => x.FromStatus == current).Select(x => x.ToStatus).ToList();
+        if (!IsTerminalStatus(current))
+            targets.AddRange(edges.Where(x => x.ToStatus == current).Select(x => x.FromStatus));
+        return targets.Distinct().ToArray();
     }
 
     private async Task<IReadOnlyList<WorkflowStatus>> AllowedTransitionsAsync(Guid projectId, WorkflowStatus current, Guid? userId, CancellationToken cancellationToken)
@@ -336,15 +346,55 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             .Where(x => x.ProjectId == projectId && x.UserId == userId.Value)
             .Select(x => x.Role).ToListAsync(cancellationToken);
         if (roles.Count == 0) return [];
-        var permitted = await db.TransitionRolePermissions.AsNoTracking()
-            .Where(x => x.FromStatus == current && workflowAllowed.Contains(x.ToStatus) && roles.Contains(x.Role))
-            .Select(x => x.ToStatus).Distinct().ToListAsync(cancellationToken);
+        var permissions = await db.TransitionRolePermissions.AsNoTracking()
+            .Where(x => roles.Contains(x.Role))
+            .Select(x => new { x.FromStatus, x.ToStatus })
+            .ToListAsync(cancellationToken);
+        var permitted = new List<WorkflowStatus>();
+        foreach (var target in workflowAllowed)
+        {
+            var permissionEdge = await PermissionEdgeAsync(projectId, current, target, cancellationToken);
+            if (permissions.Any(x => x.FromStatus == permissionEdge.From && x.ToStatus == permissionEdge.To))
+                permitted.Add(target);
+        }
         return workflowAllowed.Where(permitted.Contains).ToArray();
     }
 
-    private async Task<IReadOnlyList<ProjectRole>> RequiredRolesAsync(WorkflowStatus from, WorkflowStatus to, CancellationToken cancellationToken) =>
-        await db.TransitionRolePermissions.AsNoTracking().Where(x => x.FromStatus == from && x.ToStatus == to)
+    private async Task<IReadOnlyList<ProjectRole>> RequiredRolesAsync(Guid projectId, WorkflowStatus from, WorkflowStatus to, CancellationToken cancellationToken)
+    {
+        var edge = await PermissionEdgeAsync(projectId, from, to, cancellationToken);
+        return await db.TransitionRolePermissions.AsNoTracking().Where(x => x.FromStatus == edge.From && x.ToStatus == edge.To)
             .OrderBy(x => x.Role).Select(x => x.Role).Distinct().ToListAsync(cancellationToken);
+    }
+
+    private async Task<(WorkflowStatus From, WorkflowStatus To)> PermissionEdgeAsync(Guid projectId, WorkflowStatus from, WorkflowStatus to, CancellationToken cancellationToken)
+    {
+        var schemeId = await db.WorkflowSchemes.Where(x => x.ProjectId == projectId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
+            ?? await db.WorkflowSchemes.Where(x => x.IsDefault).Select(x => (Guid?)x.Id).SingleAsync(cancellationToken);
+        var matchingEdges = await db.WorkflowTransitions.AsNoTracking()
+            .Where(x => x.WorkflowSchemeId == schemeId &&
+                ((x.FromStatus == from && x.ToStatus == to) || (x.FromStatus == to && x.ToStatus == from)))
+            .OrderBy(x => x.SortOrder)
+            .Select(x => new { x.FromStatus, x.ToStatus })
+            .ToListAsync(cancellationToken);
+        if (IsTerminalStatus(from))
+        {
+            var explicitTerminalEdge = matchingEdges.FirstOrDefault(x => x.FromStatus == from && x.ToStatus == to);
+            if (explicitTerminalEdge is not null) return (explicitTerminalEdge.FromStatus, explicitTerminalEdge.ToStatus);
+        }
+        var canonicalEdge = matchingEdges.FirstOrDefault();
+        return canonicalEdge is null ? (from, to) : (canonicalEdge.FromStatus, canonicalEdge.ToStatus);
+    }
+
+    private async Task<bool> IsDerivedReverseTransitionAsync(Guid projectId, WorkflowStatus from, WorkflowStatus to, CancellationToken cancellationToken)
+    {
+        if (IsTerminalStatus(from)) return false;
+        var edge = await PermissionEdgeAsync(projectId, from, to, cancellationToken);
+        return edge.From == to && edge.To == from;
+    }
+
+    private static bool IsTerminalStatus(WorkflowStatus status) =>
+        status is WorkflowStatus.Closed or WorkflowStatus.Cancelled or WorkflowStatus.Rejected;
 
     private async Task<WorkflowStatus> InitialStatusAsync(Guid projectId, CancellationToken cancellationToken)
     {
