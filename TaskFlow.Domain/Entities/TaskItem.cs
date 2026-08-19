@@ -92,6 +92,7 @@ public sealed class TaskAssignment : Entity
     public required ResponsibilityType Responsibility { get; set; }
     public required string PartyReference { get; set; }
     public string? DisplayName { get; set; }
+    public bool IsPrimary { get; set; }
 }
 
 public sealed class TaskComment : Entity

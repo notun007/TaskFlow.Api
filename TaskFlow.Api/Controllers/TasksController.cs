@@ -47,7 +47,7 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         Ok(await service.ListAsync(search, status, priority, projectId, epicId, epicAssignment, featureId, featureAssignment, sortBy, sortDirection, page, pageSize, cancellationToken));
 
     [HttpGet("{id:guid}")]
-    public async Task<ActionResult<TaskDetails>> Get(Guid id, CancellationToken cancellationToken) => (await service.GetAsync(id, cancellationToken, CurrentUserId())) is { } task ? Ok(task) : NotFound();
+    public async Task<ActionResult<TaskDetails>> Get(Guid id, CancellationToken cancellationToken) => (await service.GetAsync(id, cancellationToken, CurrentUserId(), User.Identity?.Name)) is { } task ? Ok(task) : NotFound();
 
     [HttpPost]
     public async Task<ActionResult> Create(CreateTaskRequest request, CancellationToken cancellationToken)
@@ -79,12 +79,21 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         created.SprintId = request.SprintId;
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = created.Id.ToString(), Action = "SubtaskCreated", ActorReference = User.Identity?.Name ?? "system", ChangesJson = System.Text.Json.JsonSerializer.Serialize(new { parentTaskId = parent.Id, sprintId = request.SprintId }) });
         await db.SaveChangesAsync(cancellationToken);
-        return CreatedAtAction(nameof(Get), new { id = created.Id }, await service.GetAsync(created.Id, cancellationToken, CurrentUserId()));
+        return CreatedAtAction(nameof(Get), new { id = created.Id }, await service.GetAsync(created.Id, cancellationToken, CurrentUserId(), User.Identity?.Name));
     }
 
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<TaskDetails>> Update(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken)
     {
+        var identity = await CurrentIdentity(cancellationToken);
+        if (identity is null) return Unauthorized();
+        var existing = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+        if (existing is null) return NotFound();
+        if (request.ProjectId != existing.ProjectId) return BadRequest(new { message = "A task cannot be moved to another project." });
+        if (!await CanEditTask(existing, identity.Value.Id, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "You can edit only tasks you reported or own. Project Leads, Product Owners, and Project Admins may edit all project tasks." });
+        if (request.OwnerUserId != existing.OwnerUserId && !await CanManageAssignments(existing.ProjectId, identity.Value.Id, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Team Lead, Product Owner, or Project Admin can change the task owner." });
         var ownerName = await ResolveOwnerName(request.ProjectId, request.OwnerUserId, cancellationToken);
         if (request.OwnerUserId.HasValue && ownerName is null) return BadRequest(new { message = "Owner must be an active member of the selected project." });
         return (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", ownerName, cancellationToken)) is { } task ? Ok(task) : BadRequest(new { message = "Task data is invalid." });
@@ -125,13 +134,33 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
     [HttpPost("{id:guid}/assignments")]
     public async Task<ActionResult<TaskAssignmentItem>> AddAssignment(Guid id, AddTaskAssignmentRequest request, CancellationToken cancellationToken)
     {
+        var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+        if (task is null) return NotFound();
+        var currentUserId = CurrentUserId();
+        if (!currentUserId.HasValue || !await CanManageAssignments(task.ProjectId, currentUserId.Value, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Team Lead, Product Owner, or Project Admin can manage task responsibilities." });
+        if (request.Responsibility is ResponsibilityType.Tester or ResponsibilityType.UatOwner)
+        {
+            var email = request.PartyReference.Trim();
+            var assignedUser = await userManager.Users.AsNoTracking().FirstOrDefaultAsync(x => x.IsActive && x.Email == email, cancellationToken);
+            if (assignedUser is null || !await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == task.ProjectId && x.UserId == assignedUser.Id && !x.IsDeleted, cancellationToken))
+                return BadRequest(new { message = "Tester and UAT Owner must be active members of this project; enter their account email." });
+            request = request with { PartyReference = assignedUser.Email!, DisplayName = string.IsNullOrWhiteSpace(assignedUser.DisplayName) ? assignedUser.Email : assignedUser.DisplayName };
+        }
         var assignment = await service.AddAssignmentAsync(id, request, User.Identity?.Name ?? "system", cancellationToken);
         return assignment is null ? BadRequest(new { message = "A valid task and party reference are required." }) : Ok(assignment);
     }
 
     [HttpDelete("{id:guid}/assignments/{assignmentId:guid}")]
-    public async Task<IActionResult> RemoveAssignment(Guid id, Guid assignmentId, CancellationToken cancellationToken) =>
-        await service.RemoveAssignmentAsync(id, assignmentId, User.Identity?.Name ?? "system", cancellationToken) ? NoContent() : NotFound();
+    public async Task<IActionResult> RemoveAssignment(Guid id, Guid assignmentId, CancellationToken cancellationToken)
+    {
+        var projectId = await db.Tasks.AsNoTracking().Where(x => x.Id == id && !x.IsDeleted).Select(x => (Guid?)x.ProjectId).SingleOrDefaultAsync(cancellationToken);
+        if (!projectId.HasValue) return NotFound();
+        var currentUserId = CurrentUserId();
+        if (!currentUserId.HasValue || !await CanManageAssignments(projectId.Value, currentUserId.Value, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden);
+        return await service.RemoveAssignmentAsync(id, assignmentId, User.Identity?.Name ?? "system", cancellationToken) ? NoContent() : NotFound();
+    }
 
     [HttpPost("{id:guid}/links")]
     public async Task<ActionResult<TaskLinkItem>> AddLink(Guid id, AddTaskLinkRequest request, CancellationToken cancellationToken)
@@ -195,5 +224,23 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         if (!isProjectMember) return null;
         var user = await userManager.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ownerUserId.Value && x.IsActive, cancellationToken);
         return user is null ? null : string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email : user.DisplayName;
+    }
+
+    private async Task<bool> CanEditTask(TaskItem task, Guid userId, CancellationToken cancellationToken)
+    {
+        if (User.IsInRole("Administrator")) return true;
+        var roles = await db.ProjectRoleAssignments.AsNoTracking()
+            .Where(x => x.ProjectId == task.ProjectId && x.UserId == userId && !x.IsDeleted)
+            .Select(x => x.Role).ToListAsync(cancellationToken);
+        return roles.Contains(ProjectRole.ProjectAdmin) || roles.Contains(ProjectRole.ProductOwner) || roles.Contains(ProjectRole.TeamLead)
+            || (roles.Contains(ProjectRole.Requester) && task.ReporterUserId == userId)
+            || (roles.Contains(ProjectRole.TeamMember) && task.OwnerUserId == userId);
+    }
+
+    private async Task<bool> CanManageAssignments(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        if (User.IsInRole("Administrator")) return true;
+        return await db.ProjectRoleAssignments.AsNoTracking().AnyAsync(x => x.ProjectId == projectId && x.UserId == userId &&
+            (x.Role == ProjectRole.ProjectAdmin || x.Role == ProjectRole.ProductOwner || x.Role == ProjectRole.TeamLead), cancellationToken);
     }
 }

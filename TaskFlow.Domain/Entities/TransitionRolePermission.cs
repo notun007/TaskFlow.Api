@@ -9,13 +9,23 @@ public sealed class TransitionRolePermission : Entity
     public WorkflowStatus FromStatus { get; set; }
     public WorkflowStatus ToStatus { get; set; }
     public ProjectRole Role { get; set; }
+    public TaskAccessScope TaskScope { get; set; } = TaskAccessScope.AllProjectTasks;
+}
+
+public enum TaskAccessScope
+{
+    AllProjectTasks,
+    ReportedByCurrentUser,
+    OwnedByCurrentUser,
+    AssignedToCurrentUser,
+    PrimaryAssignedToCurrentUser
 }
 
 public static class UniversalTransitionRolePolicy
 {
     public static readonly DateTimeOffset SeededAt = new(2026, 8, 13, 0, 0, 0, TimeSpan.Zero);
 
-    public static IReadOnlyList<(Guid Id, WorkflowStatus From, WorkflowStatus To, ProjectRole Role)> Permissions
+    public static IReadOnlyList<(Guid Id, WorkflowStatus From, WorkflowStatus To, ProjectRole Role, TaskAccessScope TaskScope)> Permissions
     {
         get
         {
@@ -41,7 +51,7 @@ public static class UniversalTransitionRolePolicy
                 permissions.Add((transition.From, transition.To, ProjectRole.ProjectAdmin));
 
             return permissions.OrderBy(x => x.From).ThenBy(x => x.To).ThenBy(x => x.Role)
-                .Select((item, index) => (Guid.Parse($"30000000-0000-0000-0001-{index + 1:x12}"), item.From, item.To, item.Role))
+                .Select((item, index) => (Guid.Parse($"30000000-0000-0000-0001-{index + 1:x12}"), item.From, item.To, item.Role, DefaultScope(item.Role)))
                 .ToArray();
         }
     }
@@ -55,4 +65,12 @@ public static class UniversalTransitionRolePolicy
     {
         foreach (var role in roles) permissions.Add((from, to, role));
     }
+
+    public static TaskAccessScope DefaultScope(ProjectRole role) => role switch
+    {
+        ProjectRole.Requester => TaskAccessScope.ReportedByCurrentUser,
+        ProjectRole.TeamMember => TaskAccessScope.OwnedByCurrentUser,
+        ProjectRole.ReviewerTester => TaskAccessScope.PrimaryAssignedToCurrentUser,
+        _ => TaskAccessScope.AllProjectTasks
+    };
 }

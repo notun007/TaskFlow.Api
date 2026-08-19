@@ -10,7 +10,8 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 
 namespace TaskFlow.Api.Controllers;
 
-public sealed record TransitionPermissionItem(string FromStatus, string ToStatus, IReadOnlyList<string> Roles);
+public sealed record TransitionPermissionRule(string Role, string TaskScope);
+public sealed record TransitionPermissionItem(string FromStatus, string ToStatus, IReadOnlyList<TransitionPermissionRule> Rules);
 public sealed record SaveTransitionPermissionsRequest(IReadOnlyList<TransitionPermissionItem> Transitions);
 
 [ApiController]
@@ -45,7 +46,7 @@ public sealed class TransitionPermissionsController(IApplicationDbContext db, Us
         var workflowTransitions = await WorkflowTransitionSet(cancellationToken);
         var defaults = UniversalTransitionRolePolicy.Permissions
             .Where(x => workflowTransitions.Contains((x.From, x.To)))
-            .Select(x => (x.From, x.To, x.Role)).ToList();
+            .Select(x => (x.From, x.To, x.Role, x.TaskScope)).ToList();
         var missing = workflowTransitions.Where(edge => defaults.All(x => x.From != edge.From || x.To != edge.To)).ToArray();
         if (missing.Length > 0)
             return Conflict(new { message = "Some custom workflow transitions have no universal default. Configure their roles manually before saving.", transitions = missing.Select(x => new { fromStatus = x.From, toStatus = x.To }) });
@@ -53,22 +54,24 @@ public sealed class TransitionPermissionsController(IApplicationDbContext db, Us
         return Ok(await ReadPolicy(cancellationToken));
     }
 
-    private async Task Apply(IReadOnlyList<(WorkflowStatus From, WorkflowStatus To, ProjectRole Role)> desired, string action, CancellationToken cancellationToken)
+    private async Task Apply(IReadOnlyList<(WorkflowStatus From, WorkflowStatus To, ProjectRole Role, TaskAccessScope TaskScope)> desired, string action, CancellationToken cancellationToken)
     {
         var existing = await db.TransitionRolePermissions.IgnoreQueryFilters().ToListAsync(cancellationToken);
-        var desiredSet = desired.ToHashSet();
+        var desiredSet = desired.ToDictionary(x => (x.From, x.To, x.Role), x => x.TaskScope);
         foreach (var permission in existing)
         {
-            var shouldExist = desiredSet.Remove((permission.FromStatus, permission.ToStatus, permission.Role));
+            var key = (permission.FromStatus, permission.ToStatus, permission.Role);
+            var shouldExist = desiredSet.Remove(key, out var scope);
             permission.IsDeleted = !shouldExist;
+            if (shouldExist) permission.TaskScope = scope;
             permission.UpdatedAt = DateTimeOffset.UtcNow;
         }
         foreach (var item in desiredSet)
-            db.TransitionRolePermissions.Add(new TransitionRolePermission { FromStatus = item.From, ToStatus = item.To, Role = item.Role });
+            db.TransitionRolePermissions.Add(new TransitionRolePermission { FromStatus = item.Key.From, ToStatus = item.Key.To, Role = item.Key.Role, TaskScope = item.Value });
         db.AuditEntries.Add(new AuditEntry
         {
             EntityName = nameof(TransitionRolePermission), EntityId = "GLOBAL", Action = action,
-            ActorReference = User.Identity?.Name ?? "system", ChangesJson = JsonSerializer.Serialize(desired.Select(x => new { x.From, x.To, x.Role }))
+            ActorReference = User.Identity?.Name ?? "system", ChangesJson = JsonSerializer.Serialize(desired.Select(x => new { x.From, x.To, x.Role, x.TaskScope }))
         });
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -79,7 +82,8 @@ public sealed class TransitionPermissionsController(IApplicationDbContext db, Us
         var permissions = await db.TransitionRolePermissions.AsNoTracking().ToListAsync(cancellationToken);
         return workflowTransitions.OrderBy(x => x.From).ThenBy(x => x.To)
             .Select(edge => new TransitionPermissionItem(edge.From.ToString(), edge.To.ToString(), permissions
-                .Where(x => x.FromStatus == edge.From && x.ToStatus == edge.To).OrderBy(x => x.Role).Select(x => x.Role.ToString()).ToArray()))
+                .Where(x => x.FromStatus == edge.From && x.ToStatus == edge.To).OrderBy(x => x.Role)
+                .Select(x => new TransitionPermissionRule(x.Role.ToString(), x.TaskScope.ToString())).ToArray()))
             .ToArray();
     }
 
@@ -87,18 +91,19 @@ public sealed class TransitionPermissionsController(IApplicationDbContext db, Us
         (await db.WorkflowTransitions.AsNoTracking().Select(x => new { x.FromStatus, x.ToStatus }).Distinct().ToListAsync(cancellationToken))
         .Select(x => (x.FromStatus, x.ToStatus)).ToHashSet();
 
-    private static (List<(WorkflowStatus From, WorkflowStatus To, ProjectRole Role)> Permissions, string? Error) Parse(IReadOnlyList<TransitionPermissionItem>? items)
+    private static (List<(WorkflowStatus From, WorkflowStatus To, ProjectRole Role, TaskAccessScope TaskScope)> Permissions, string? Error) Parse(IReadOnlyList<TransitionPermissionItem>? items)
     {
         if (items is null || items.Count == 0) return ([], "At least one transition is required.");
-        var result = new List<(WorkflowStatus, WorkflowStatus, ProjectRole)>();
+        var result = new List<(WorkflowStatus, WorkflowStatus, ProjectRole, TaskAccessScope)>();
         foreach (var item in items)
         {
             if (!Enum.TryParse<WorkflowStatus>(item.FromStatus, true, out var from) || !Enum.TryParse<WorkflowStatus>(item.ToStatus, true, out var to)) return ([], "A transition contains an unsupported status.");
-            if (item.Roles is null || item.Roles.Count == 0) return ([], $"Assign at least one role to {from} → {to}.");
-            foreach (var roleName in item.Roles.Distinct(StringComparer.OrdinalIgnoreCase))
+            if (item.Rules is null || item.Rules.Count == 0) return ([], $"Assign at least one role to {from} → {to}.");
+            foreach (var rule in item.Rules.GroupBy(x => x.Role, StringComparer.OrdinalIgnoreCase).Select(x => x.First()))
             {
-                if (!Enum.TryParse<ProjectRole>(roleName, true, out var role)) return ([], $"{roleName} is not a supported project role.");
-                result.Add((from, to, role));
+                if (!Enum.TryParse<ProjectRole>(rule.Role, true, out var role)) return ([], $"{rule.Role} is not a supported project role.");
+                if (!Enum.TryParse<TaskAccessScope>(rule.TaskScope, true, out var scope)) return ([], $"{rule.TaskScope} is not a supported task scope.");
+                result.Add((from, to, role, scope));
             }
         }
         if (result.Select(x => (x.Item1, x.Item2)).Distinct().Count() != items.Count) return ([], "Duplicate transitions are not allowed.");

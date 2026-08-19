@@ -67,9 +67,10 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<TransitionRolePermission>().Property(x => x.FromStatus).HasConversion<string>();
         builder.Entity<TransitionRolePermission>().Property(x => x.ToStatus).HasConversion<string>();
         builder.Entity<TransitionRolePermission>().Property(x => x.Role).HasConversion<string>();
+        builder.Entity<TransitionRolePermission>().Property(x => x.TaskScope).HasConversion<string>().HasMaxLength(64);
         builder.Entity<TransitionRolePermission>().HasIndex(x => new { x.FromStatus, x.ToStatus, x.Role }).IsUnique();
         builder.Entity<TransitionRolePermission>().HasQueryFilter(x => !x.IsDeleted);
-        builder.Entity<TransitionRolePermission>().HasData(UniversalTransitionRolePolicy.Permissions.Select(x => new { x.Id, FromStatus = x.From, ToStatus = x.To, x.Role, CreatedAt = UniversalTransitionRolePolicy.SeededAt, UpdatedAt = (DateTimeOffset?)null, IsDeleted = false }));
+        builder.Entity<TransitionRolePermission>().HasData(UniversalTransitionRolePolicy.Permissions.Select(x => new { x.Id, FromStatus = x.From, ToStatus = x.To, x.Role, x.TaskScope, CreatedAt = UniversalTransitionRolePolicy.SeededAt, UpdatedAt = (DateTimeOffset?)null, IsDeleted = false }));
         builder.Entity<TaskStatusHistory>().Property(x => x.FromStatus).HasConversion<string>();
         builder.Entity<TaskStatusHistory>().Property(x => x.ToStatus).HasConversion<string>();
         builder.Entity<TaskStatusHistory>().HasIndex(x => new { x.TaskItemId, x.CreatedAt });
