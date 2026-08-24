@@ -92,8 +92,8 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         if (request.ProjectId != existing.ProjectId) return BadRequest(new { message = "A task cannot be moved to another project." });
         if (!await CanEditTask(existing, identity.Value.Id, cancellationToken))
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "You can edit only tasks you reported or own. Project Leads, Product Owners, and Project Admins may edit all project tasks." });
-        if (request.OwnerUserId != existing.OwnerUserId && !await CanManageAssignments(existing.ProjectId, identity.Value.Id, cancellationToken))
-            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Team Lead, Product Owner, or Project Admin can change the task owner." });
+        if (request.OwnerUserId != existing.OwnerUserId && !await CanChangeOwner(existing.ProjectId, identity.Value.Id, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Requester, Team Lead, Product Owner, or Project Admin can change the task owner." });
         var ownerName = await ResolveOwnerName(request.ProjectId, request.OwnerUserId, cancellationToken);
         if (request.OwnerUserId.HasValue && ownerName is null) return BadRequest(new { message = "Owner must be an active member of the selected project." });
         return (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", ownerName, cancellationToken)) is { } task ? Ok(task) : BadRequest(new { message = "Task data is invalid." });
@@ -139,13 +139,17 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         var currentUserId = CurrentUserId();
         if (!currentUserId.HasValue || !await CanManageAssignments(task.ProjectId, currentUserId.Value, cancellationToken))
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Team Lead, Product Owner, or Project Admin can manage task responsibilities." });
-        if (request.Responsibility is ResponsibilityType.Tester or ResponsibilityType.UatOwner)
+        if (request.Responsibility is ResponsibilityType.Assignee or ResponsibilityType.Tester or ResponsibilityType.UatOwner or ResponsibilityType.Approver)
         {
-            var email = request.PartyReference.Trim();
-            var assignedUser = await userManager.Users.AsNoTracking().FirstOrDefaultAsync(x => x.IsActive && x.Email == email, cancellationToken);
+            var reference = request.PartyReference.Trim();
+            var assignedUserId = request.AssignedUserId;
+            if (!assignedUserId.HasValue && Guid.TryParse(reference, out var parsedUserId)) assignedUserId = parsedUserId;
+            var assignedUser = assignedUserId.HasValue
+                ? await userManager.Users.AsNoTracking().FirstOrDefaultAsync(x => x.IsActive && x.Id == assignedUserId.Value, cancellationToken)
+                : await userManager.Users.AsNoTracking().FirstOrDefaultAsync(x => x.IsActive && x.Email == reference, cancellationToken);
             if (assignedUser is null || !await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == task.ProjectId && x.UserId == assignedUser.Id && !x.IsDeleted, cancellationToken))
-                return BadRequest(new { message = "Tester and UAT Owner must be active members of this project; enter their account email." });
-            request = request with { PartyReference = assignedUser.Email!, DisplayName = string.IsNullOrWhiteSpace(assignedUser.DisplayName) ? assignedUser.Email : assignedUser.DisplayName };
+                return BadRequest(new { message = "Select an active user who has a role in this project." });
+            request = request with { AssignedUserId = assignedUser.Id, PartyReference = assignedUser.Email!, DisplayName = string.IsNullOrWhiteSpace(assignedUser.DisplayName) ? assignedUser.Email : assignedUser.DisplayName };
         }
         var assignment = await service.AddAssignmentAsync(id, request, User.Identity?.Name ?? "system", cancellationToken);
         return assignment is null ? BadRequest(new { message = "A valid task and party reference are required." }) : Ok(assignment);
@@ -242,5 +246,12 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         if (User.IsInRole("Administrator")) return true;
         return await db.ProjectRoleAssignments.AsNoTracking().AnyAsync(x => x.ProjectId == projectId && x.UserId == userId &&
             (x.Role == ProjectRole.ProjectAdmin || x.Role == ProjectRole.ProductOwner || x.Role == ProjectRole.TeamLead), cancellationToken);
+    }
+
+    private async Task<bool> CanChangeOwner(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        if (User.IsInRole("Administrator")) return true;
+        return await db.ProjectRoleAssignments.AsNoTracking().AnyAsync(x => x.ProjectId == projectId && x.UserId == userId &&
+            (x.Role == ProjectRole.ProjectAdmin || x.Role == ProjectRole.ProductOwner || x.Role == ProjectRole.TeamLead || x.Role == ProjectRole.Requester), cancellationToken);
     }
 }

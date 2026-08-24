@@ -41,4 +41,8 @@ public sealed class DefaultTaskWorkflowTests
         Assert.Equal(BuiltInWorkflow.Transitions.Count, BuiltInWorkflow.Transitions.Select(x => x.Id).Distinct().Count());
         Assert.All(BuiltInWorkflow.Transitions, item => Assert.Contains((item.From, item.To), DefaultTaskWorkflow.AllTransitions));
     }
+
+    [Fact]
+    public void Team_member_default_scope_requires_the_current_user_to_be_the_task_assignee() =>
+        Assert.Equal(TaskAccessScope.AssigneeIsCurrentUser, UniversalTransitionRolePolicy.DefaultScope(ProjectRole.TeamMember));
 }

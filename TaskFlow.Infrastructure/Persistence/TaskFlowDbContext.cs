@@ -61,6 +61,8 @@ public sealed class TaskFlowDbContext(DbContextOptions<TaskFlowDbContext> option
         builder.Entity<Feature>().HasIndex(x => x.ProjectId);
         builder.Entity<Feature>().HasQueryFilter(x => !x.IsDeleted);
         builder.Entity<TaskAssignment>().Property(x => x.Responsibility).HasConversion<string>();
+        builder.Entity<TaskAssignment>().HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.AssignedUserId).OnDelete(DeleteBehavior.SetNull);
+        builder.Entity<TaskAssignment>().HasIndex(x => x.AssignedUserId);
         builder.Entity<ProjectRoleAssignment>().Property(x => x.Role).HasConversion<string>();
         builder.Entity<ProjectRoleAssignment>().HasIndex(x => new { x.ProjectId, x.UserId, x.Role }).IsUnique();
         builder.Entity<ProjectRoleAssignment>().HasQueryFilter(x => !x.IsDeleted);

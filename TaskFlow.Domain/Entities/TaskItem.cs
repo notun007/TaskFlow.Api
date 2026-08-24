@@ -90,6 +90,7 @@ public sealed class TaskAssignment : Entity
     public Guid TaskItemId { get; set; }
     public TaskItem? TaskItem { get; set; }
     public required ResponsibilityType Responsibility { get; set; }
+    public Guid? AssignedUserId { get; set; }
     public required string PartyReference { get; set; }
     public string? DisplayName { get; set; }
     public bool IsPrimary { get; set; }
