@@ -12,11 +12,19 @@ using WorkflowStatus = TaskFlow.Domain.Enums.TaskStatus;
 namespace TaskFlow.Api.Controllers;
 
 public sealed record SprintTaskItem(Guid Id, string TaskNumber, string Title, string Type, string Status, string Priority, DateTimeOffset? DueDate, Guid? EpicId, string? EpicName, Guid? FeatureId, string? FeatureName,
-    Guid? OwnerUserId, Guid? ReporterUserId, bool ReportedByMe, bool OwnedByMe, bool TestingByMe, bool UatByMe);
+    Guid? OwnerUserId, Guid? ReporterUserId, bool ReportedByMe, bool OwnedByMe, bool AssignedToMe, bool TestingByMe, bool UatByMe);
 public sealed record SprintItem(Guid Id, string Name, string? Goal, Guid ProjectId, string Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, DateTimeOffset CreatedAt, IReadOnlyList<SprintTaskItem> Tasks);
 public sealed record BacklogDetails(Guid ProjectId, string ProjectName, IReadOnlyList<SprintItem> Sprints, IReadOnlyList<SprintTaskItem> Backlog);
 public sealed record SaveSprintRequest(string Name, string? Goal, Guid ProjectId, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record AssignSprintRequest(Guid? SprintId);
+
+internal sealed record CurrentUserTaskAssignments(
+    Guid[] AssigneeTaskIds,
+    Guid[] TesterTaskIds,
+    Guid[] UatOwnerTaskIds)
+{
+    public static readonly CurrentUserTaskAssignments Empty = new([], [], []);
+}
 
 [ApiController]
 [Route("api/sprints")]
@@ -29,7 +37,7 @@ public sealed class SprintsController(IApplicationDbContext db) : ControllerBase
     public async Task<ActionResult<BacklogDetails>> Backlog(Guid projectId, CancellationToken cancellationToken)
     {
         var currentUserId = CurrentUserId();
-        var currentUserReference = User.Identity?.Name ?? string.Empty;
+        var currentUserAssignments = await CurrentUserAssignments(cancellationToken);
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == projectId && !x.IsDeleted, cancellationToken);
         if (project is null) return NotFound();
         await ReconcileTaskStatuses(projectId, cancellationToken);
@@ -38,12 +46,14 @@ public sealed class SprintsController(IApplicationDbContext db) : ControllerBase
             .Select(x => new SprintItem(x.Id, x.Name, x.Goal, x.ProjectId, x.Status.ToString(), x.StartDate, x.EndDate, x.StartedAt, x.CompletedAt, x.CreatedAt,
                 x.Tasks.Where(t => !t.IsDeleted).OrderBy(t => t.CreatedAt).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate, t.EpicId, t.Epic != null ? t.Epic.Name : null, t.FeatureId, t.Feature != null ? t.Feature.Name : null,
                     t.OwnerUserId, t.ReporterUserId, currentUserId.HasValue && t.ReporterUserId == currentUserId, currentUserId.HasValue && t.OwnerUserId == currentUserId,
-                    t.Assignments.Any(a => !a.IsDeleted && a.Responsibility == ResponsibilityType.Tester && a.PartyReference == currentUserReference),
-                    t.Assignments.Any(a => !a.IsDeleted && a.Responsibility == ResponsibilityType.UatOwner && a.PartyReference == currentUserReference))).ToList())).ToListAsync(cancellationToken);
+                    currentUserAssignments.AssigneeTaskIds.Contains(t.Id),
+                    currentUserAssignments.TesterTaskIds.Contains(t.Id),
+                    currentUserAssignments.UatOwnerTaskIds.Contains(t.Id))).ToList())).ToListAsync(cancellationToken);
         var backlog = await db.Tasks.AsNoTracking().Where(x => x.ProjectId == projectId && x.SprintId == null && !x.IsDeleted).OrderBy(x => x.CreatedAt).Select(x => new SprintTaskItem(x.Id, x.TaskNumber, x.Title, x.Type, x.Status.ToString(), x.Priority.ToString(), x.DueDate, x.EpicId, x.Epic != null ? x.Epic.Name : null, x.FeatureId, x.Feature != null ? x.Feature.Name : null,
             x.OwnerUserId, x.ReporterUserId, currentUserId.HasValue && x.ReporterUserId == currentUserId, currentUserId.HasValue && x.OwnerUserId == currentUserId,
-            x.Assignments.Any(a => !a.IsDeleted && a.Responsibility == ResponsibilityType.Tester && a.PartyReference == currentUserReference),
-            x.Assignments.Any(a => !a.IsDeleted && a.Responsibility == ResponsibilityType.UatOwner && a.PartyReference == currentUserReference))).ToListAsync(cancellationToken);
+            currentUserAssignments.AssigneeTaskIds.Contains(x.Id),
+            currentUserAssignments.TesterTaskIds.Contains(x.Id),
+            currentUserAssignments.UatOwnerTaskIds.Contains(x.Id))).ToListAsync(cancellationToken);
         return Ok(new BacklogDetails(project.Id, project.Name, sprints, backlog));
     }
 
@@ -138,17 +148,52 @@ public sealed class SprintsController(IApplicationDbContext db) : ControllerBase
     private async Task<SprintItem> Find(Guid id, CancellationToken cancellationToken)
     {
         var currentUserId = CurrentUserId();
-        var currentUserReference = User.Identity?.Name ?? string.Empty;
+        var currentUserAssignments = await CurrentUserAssignments(cancellationToken);
         return await db.Sprints.AsNoTracking().Where(x => x.Id == id).Select(x => new SprintItem(x.Id, x.Name, x.Goal, x.ProjectId, x.Status.ToString(), x.StartDate, x.EndDate, x.StartedAt, x.CompletedAt, x.CreatedAt, x.Tasks.Where(t => !t.IsDeleted).Select(t => new SprintTaskItem(t.Id, t.TaskNumber, t.Title, t.Type, t.Status.ToString(), t.Priority.ToString(), t.DueDate, t.EpicId, t.Epic != null ? t.Epic.Name : null, t.FeatureId, t.Feature != null ? t.Feature.Name : null,
             t.OwnerUserId, t.ReporterUserId, currentUserId.HasValue && t.ReporterUserId == currentUserId, currentUserId.HasValue && t.OwnerUserId == currentUserId,
-            t.Assignments.Any(a => !a.IsDeleted && a.Responsibility == ResponsibilityType.Tester && a.PartyReference == currentUserReference),
-            t.Assignments.Any(a => !a.IsDeleted && a.Responsibility == ResponsibilityType.UatOwner && a.PartyReference == currentUserReference))).ToList())).SingleAsync(cancellationToken);
+            currentUserAssignments.AssigneeTaskIds.Contains(t.Id),
+            currentUserAssignments.TesterTaskIds.Contains(t.Id),
+            currentUserAssignments.UatOwnerTaskIds.Contains(t.Id))).ToList())).SingleAsync(cancellationToken);
     }
     private void Audit(Guid id, string action) => db.AuditEntries.Add(new AuditEntry { EntityName = nameof(Sprint), EntityId = id.ToString(), Action = action, ActorReference = User.Identity?.Name ?? "system" });
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private Guid? CurrentUserId()
     {
-        var value = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(value, out var userId) ? userId : null;
+        var values = new[]
+        {
+            User.FindFirstValue(JwtRegisteredClaimNames.Sub),
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+        };
+        foreach (var value in values)
+            if (Guid.TryParse(value, out var userId)) return userId;
+        return null;
+    }
+
+    private async Task<CurrentUserTaskAssignments> CurrentUserAssignments(CancellationToken cancellationToken)
+    {
+        var currentUserId = CurrentUserId();
+        if (!currentUserId.HasValue) return CurrentUserTaskAssignments.Empty;
+
+        var references = new[]
+        {
+            currentUserId.Value.ToString().ToUpperInvariant(),
+            User.FindFirstValue(ClaimTypes.Email)?.Trim().ToUpperInvariant(),
+            User.Identity?.Name?.Trim().ToUpperInvariant()
+        }.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().ToArray();
+
+        var assignments = await db.TaskAssignments.AsNoTracking()
+            .Where(assignment => !assignment.IsDeleted &&
+                (assignment.AssignedUserId == currentUserId.Value ||
+                 references.Contains(assignment.PartyReference.Trim().ToUpper())))
+            .Where(assignment => assignment.Responsibility == ResponsibilityType.Assignee ||
+                                 assignment.Responsibility == ResponsibilityType.Tester ||
+                                 assignment.Responsibility == ResponsibilityType.UatOwner)
+            .Select(assignment => new { assignment.TaskItemId, assignment.Responsibility })
+            .ToListAsync(cancellationToken);
+
+        return new CurrentUserTaskAssignments(
+            assignments.Where(value => value.Responsibility == ResponsibilityType.Assignee).Select(value => value.TaskItemId).Distinct().ToArray(),
+            assignments.Where(value => value.Responsibility == ResponsibilityType.Tester).Select(value => value.TaskItemId).Distinct().ToArray(),
+            assignments.Where(value => value.Responsibility == ResponsibilityType.UatOwner).Select(value => value.TaskItemId).Distinct().ToArray());
     }
 }

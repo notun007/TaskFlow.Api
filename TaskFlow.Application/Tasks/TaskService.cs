@@ -383,15 +383,18 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
             .Where(x => roles.Contains(x.Role))
             .Select(x => new { x.FromStatus, x.ToStatus, x.Role, x.TaskScope })
             .ToListAsync(cancellationToken);
-        var normalizedReference = string.IsNullOrWhiteSpace(userReference) ? null : userReference.Trim();
-        var normalizedUserId = userId.Value.ToString();
+        var userReferences = new[]
+        {
+            userId.Value.ToString().ToUpperInvariant(),
+            string.IsNullOrWhiteSpace(userReference) ? null : userReference.Trim().ToUpperInvariant()
+        }.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().ToArray();
         var isAssigned = false;
         var isPrimaryAssigned = false;
         var isAssignee = false;
         var userAssignments = await db.TaskAssignments.AsNoTracking().Where(x =>
                 x.TaskItemId == task.Id && !x.IsDeleted &&
-                (x.AssignedUserId == userId.Value || x.PartyReference == normalizedUserId ||
-                    (normalizedReference != null && x.PartyReference == normalizedReference)))
+                (x.AssignedUserId == userId.Value ||
+                 userReferences.Contains(x.PartyReference.Trim().ToUpper())))
             .Select(x => new { x.Responsibility, x.IsPrimary }).ToListAsync(cancellationToken);
         isAssigned = userAssignments.Count != 0;
         isPrimaryAssigned = userAssignments.Any(value => value.IsPrimary);
