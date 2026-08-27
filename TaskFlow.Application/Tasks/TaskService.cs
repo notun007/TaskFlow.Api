@@ -12,7 +12,8 @@ public sealed record TaskListItem(Guid Id, string TaskNumber, string Title, stri
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 public sealed record SaveTaskCustomFieldValueRequest(Guid CustomFieldDefinitionId, string? Value);
 public sealed record CreateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields, Guid? OwnerUserId = null, int? EstimatedEffortMinutes = null);
-public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields, Guid? OwnerUserId = null, int? EstimatedEffortMinutes = null);
+public sealed record UpdateTaskRequest(string Title, string? Description, string Type, Priority Priority, Severity? Severity, Guid ProjectId, Guid? SoftwareApplicationId, DateTimeOffset? DueDate, Guid? EpicId, Guid? FeatureId, IReadOnlyList<SaveTaskCustomFieldValueRequest>? CustomFields, Guid? OwnerUserId = null, int? EstimatedEffortMinutes = null, Guid? TesterUserId = null, bool UpdateTesterAssignment = false);
+public sealed record TaskAssignmentUser(Guid Id, string Reference, string DisplayName);
 public sealed record AddTaskAssignmentRequest(ResponsibilityType Responsibility, string PartyReference, string? DisplayName, bool IsPrimary = false, Guid? AssignedUserId = null);
 public sealed record TaskAssignmentItem(Guid Id, ResponsibilityType Responsibility, string PartyReference, string? DisplayName, bool IsPrimary, Guid? AssignedUserId);
 public sealed record TaskCommentItem(Guid Id, string AuthorReference, string Body, DateTimeOffset CreatedAt);
@@ -66,7 +67,7 @@ public interface ITaskService
     Task<PagedResult<TaskListItem>> ListAsync(string? search, WorkflowStatus? status, Priority? priority, Guid? projectId, Guid? epicId, string? epicAssignment, Guid? featureId, string? featureAssignment, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken);
     Task<TaskDetails?> GetAsync(Guid id, CancellationToken cancellationToken, Guid? userId = null, string? userReference = null);
     Task<TaskItem?> CreateAsync(CreateTaskRequest request, string actor, Guid reporterUserId, string reporterDisplayName, string? ownerDisplayName, CancellationToken cancellationToken);
-    Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, string? ownerDisplayName, CancellationToken cancellationToken);
+    Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, string? ownerDisplayName, TaskAssignmentUser? tester, CancellationToken cancellationToken);
     Task<TaskStatusChangeResult> ChangeStatusAsync(Guid id, WorkflowStatus status, string? comment, string actor, CancellationToken cancellationToken, Guid? userId = null);
     Task<TaskCommentItem?> AddCommentAsync(Guid id, string body, string actor, CancellationToken cancellationToken);
     Task<TaskAssignmentItem?> AddAssignmentAsync(Guid id, AddTaskAssignmentRequest request, string actor, CancellationToken cancellationToken);
@@ -189,7 +190,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         return task;
     }
 
-    public async Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, string? ownerDisplayName, CancellationToken cancellationToken)
+    public async Task<TaskDetails?> UpdateAsync(Guid id, UpdateTaskRequest request, string actor, string? ownerDisplayName, TaskAssignmentUser? tester, CancellationToken cancellationToken)
     {
         var task = await db.Tasks.Include(x => x.CustomFieldValues).FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
         if (task is null || string.IsNullOrWhiteSpace(request.Title)) return null;
@@ -214,10 +215,50 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         task.OwnerUserId = request.OwnerUserId;
         task.OwnerDisplayName = ownerDisplayName;
         task.EstimatedEffortMinutes = request.EstimatedEffortMinutes;
+        if (request.UpdateTesterAssignment)
+            await SyncSingleTesterAsync(task.Id, tester, actor, cancellationToken);
         SyncCustomFields(task, fields, request.CustomFields, false);
         db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = "Updated", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { previousOwnerUserId, ownerUserId = task.OwnerUserId, previousEffort, estimatedEffortMinutes = task.EstimatedEffortMinutes }) });
         await db.SaveChangesAsync(cancellationToken);
         return await GetAsync(id, cancellationToken);
+    }
+
+    private async Task SyncSingleTesterAsync(Guid taskId, TaskAssignmentUser? tester, string actor, CancellationToken cancellationToken)
+    {
+        var active = await db.TaskAssignments
+            .Where(x => x.TaskItemId == taskId && x.Responsibility == ResponsibilityType.Tester && !x.IsDeleted)
+            .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToListAsync(cancellationToken);
+        var current = active.FirstOrDefault();
+        var previousTesterUserId = current?.AssignedUserId;
+
+        foreach (var duplicate in active.Skip(1))
+        {
+            duplicate.IsDeleted = true;
+            duplicate.IsPrimary = false;
+        }
+
+        if (tester is null)
+        {
+            if (current is null) return;
+            current.IsDeleted = true;
+            current.IsPrimary = false;
+            db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = taskId.ToString(), Action = "TesterUnassigned", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { previousTesterUserId }) });
+            return;
+        }
+
+        if (current is null)
+        {
+            db.TaskAssignments.Add(new TaskAssignment { TaskItemId = taskId, Responsibility = ResponsibilityType.Tester, AssignedUserId = tester.Id, PartyReference = tester.Reference, DisplayName = tester.DisplayName, IsPrimary = false });
+            db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = taskId.ToString(), Action = "TesterAssigned", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { testerUserId = tester.Id }) });
+            return;
+        }
+
+        current.AssignedUserId = tester.Id;
+        current.PartyReference = tester.Reference;
+        current.DisplayName = tester.DisplayName;
+        current.IsPrimary = false;
+        if (previousTesterUserId != tester.Id)
+            db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = taskId.ToString(), Action = "TesterReassigned", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { previousTesterUserId, testerUserId = tester.Id }) });
     }
 
     public async Task<TaskStatusChangeResult> ChangeStatusAsync(Guid id, WorkflowStatus status, string? comment, string actor, CancellationToken cancellationToken, Guid? userId = null)
@@ -261,7 +302,50 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         if (request.Responsibility is ResponsibilityType.Owner or ResponsibilityType.Reporter) return null;
         var partyReference = request.PartyReference.Trim();
         if (string.IsNullOrWhiteSpace(partyReference) || !await db.Tasks.AnyAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)) return null;
-        var supportsPrimary = request.Responsibility is ResponsibilityType.Tester or ResponsibilityType.UatOwner;
+        var isSingleUserResponsibility = request.Responsibility is ResponsibilityType.Assignee or ResponsibilityType.Tester;
+        if (isSingleUserResponsibility)
+        {
+            var active = await db.TaskAssignments
+                .Where(x => x.TaskItemId == id && x.Responsibility == request.Responsibility && !x.IsDeleted)
+                .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToListAsync(cancellationToken);
+            var singleAssignment = active.FirstOrDefault();
+            var previousAssignedUserId = singleAssignment?.AssignedUserId;
+            var previousPartyReference = singleAssignment?.PartyReference;
+            foreach (var duplicate in active.Skip(1))
+            {
+                duplicate.IsDeleted = true;
+                duplicate.IsPrimary = false;
+            }
+
+            if (singleAssignment is null)
+            {
+                singleAssignment = new TaskAssignment
+                {
+                    TaskItemId = id,
+                    Responsibility = request.Responsibility,
+                    AssignedUserId = request.AssignedUserId,
+                    PartyReference = partyReference,
+                    DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim(),
+                    IsPrimary = false
+                };
+                db.TaskAssignments.Add(singleAssignment);
+                db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"AssignmentAdded:{request.Responsibility}", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { request.AssignedUserId, PartyReference = partyReference }) });
+            }
+            else
+            {
+                singleAssignment.AssignedUserId = request.AssignedUserId;
+                singleAssignment.PartyReference = partyReference;
+                singleAssignment.DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? singleAssignment.DisplayName : request.DisplayName.Trim();
+                singleAssignment.IsPrimary = false;
+                if (previousAssignedUserId != singleAssignment.AssignedUserId || !string.Equals(previousPartyReference, singleAssignment.PartyReference, StringComparison.OrdinalIgnoreCase))
+                    db.AuditEntries.Add(new AuditEntry { EntityName = nameof(TaskItem), EntityId = id.ToString(), Action = $"AssignmentReassigned:{request.Responsibility}", ActorReference = actor, ChangesJson = JsonSerializer.Serialize(new { previousAssignedUserId, assignedUserId = singleAssignment.AssignedUserId, previousPartyReference, partyReference = singleAssignment.PartyReference }) });
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            return new TaskAssignmentItem(singleAssignment.Id, singleAssignment.Responsibility, singleAssignment.PartyReference, singleAssignment.DisplayName, singleAssignment.IsPrimary, singleAssignment.AssignedUserId);
+        }
+
+        var supportsPrimary = request.Responsibility == ResponsibilityType.UatOwner;
         var assignedUserIdReference = request.AssignedUserId?.ToString();
         var existing = await db.TaskAssignments.FirstOrDefaultAsync(x => x.TaskItemId == id && x.Responsibility == request.Responsibility && !x.IsDeleted &&
             (request.AssignedUserId.HasValue
@@ -297,7 +381,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         var wasPrimary = assignment.IsPrimary;
         assignment.IsDeleted = true;
         assignment.IsPrimary = false;
-        if (wasPrimary && (assignment.Responsibility is ResponsibilityType.Tester or ResponsibilityType.UatOwner))
+        if (wasPrimary && assignment.Responsibility == ResponsibilityType.UatOwner)
         {
             var replacement = await db.TaskAssignments.Where(x => x.TaskItemId == id && x.Responsibility == assignment.Responsibility && x.Id != assignmentId && !x.IsDeleted)
                 .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).FirstOrDefaultAsync(cancellationToken);
@@ -391,6 +475,7 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         var isAssigned = false;
         var isPrimaryAssigned = false;
         var isAssignee = false;
+        var isTester = false;
         var userAssignments = await db.TaskAssignments.AsNoTracking().Where(x =>
                 x.TaskItemId == task.Id && !x.IsDeleted &&
                 (x.AssignedUserId == userId.Value ||
@@ -399,25 +484,28 @@ public sealed class TaskService(IApplicationDbContext db) : ITaskService
         isAssigned = userAssignments.Count != 0;
         isPrimaryAssigned = userAssignments.Any(value => value.IsPrimary);
         isAssignee = userAssignments.Any(value => value.Responsibility == ResponsibilityType.Assignee);
+        isTester = userAssignments.Any(value => value.Responsibility == ResponsibilityType.Tester);
         var permitted = new List<WorkflowStatus>();
         foreach (var target in workflowAllowed)
         {
             var permissionEdge = await PermissionEdgeAsync(task.ProjectId, task.Status, target, cancellationToken);
             var rules = permissions.Where(x => x.FromStatus == permissionEdge.From && x.ToStatus == permissionEdge.To);
-            if (rules.Any(rule => ScopeAllows(rule.TaskScope, task, userId.Value, isAssigned, isPrimaryAssigned, isAssignee)))
+            if (rules.Any(rule => ScopeAllows(rule.TaskScope, task, userId.Value, isAssigned, isPrimaryAssigned, isAssignee, isTester)))
                 permitted.Add(target);
         }
         return workflowAllowed.Where(permitted.Contains).ToArray();
     }
 
-    private static bool ScopeAllows(TaskAccessScope scope, TaskItem task, Guid userId, bool isAssigned, bool isPrimaryAssigned, bool isAssignee) => scope switch
+    private static bool ScopeAllows(TaskAccessScope scope, TaskItem task, Guid userId, bool isAssigned, bool isPrimaryAssigned, bool isAssignee, bool isTester) => scope switch
     {
         TaskAccessScope.ReportedByCurrentUser => task.ReporterUserId == userId,
         TaskAccessScope.OwnedByCurrentUser => task.OwnerUserId == userId,
         TaskAccessScope.AssignedToCurrentUser => isAssigned,
         TaskAccessScope.PrimaryAssignedToCurrentUser => isPrimaryAssigned,
         TaskAccessScope.AssigneeIsCurrentUser => isAssignee,
-        _ => true
+        TaskAccessScope.TesterIsCurrentUser => isTester,
+        TaskAccessScope.AllProjectTasks => true,
+        _ => false
     };
 
     private async Task<IReadOnlyList<ProjectRole>> RequiredRolesAsync(Guid projectId, WorkflowStatus from, WorkflowStatus to, CancellationToken cancellationToken)

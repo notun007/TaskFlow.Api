@@ -19,7 +19,8 @@ public enum TaskAccessScope
     OwnedByCurrentUser,
     AssignedToCurrentUser,
     PrimaryAssignedToCurrentUser,
-    AssigneeIsCurrentUser
+    AssigneeIsCurrentUser,
+    TesterIsCurrentUser
 }
 
 public static class UniversalTransitionRolePolicy
@@ -71,7 +72,7 @@ public static class UniversalTransitionRolePolicy
     {
         ProjectRole.Requester => TaskAccessScope.ReportedByCurrentUser,
         ProjectRole.TeamMember => TaskAccessScope.AssigneeIsCurrentUser,
-        ProjectRole.ReviewerTester => TaskAccessScope.PrimaryAssignedToCurrentUser,
+        ProjectRole.ReviewerTester => TaskAccessScope.TesterIsCurrentUser,
         _ => TaskAccessScope.AllProjectTasks
     };
 }

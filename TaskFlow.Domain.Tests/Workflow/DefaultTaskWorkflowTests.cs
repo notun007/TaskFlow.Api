@@ -45,4 +45,8 @@ public sealed class DefaultTaskWorkflowTests
     [Fact]
     public void Team_member_default_scope_requires_the_current_user_to_be_the_task_assignee() =>
         Assert.Equal(TaskAccessScope.AssigneeIsCurrentUser, UniversalTransitionRolePolicy.DefaultScope(ProjectRole.TeamMember));
+
+    [Fact]
+    public void Reviewer_tester_default_scope_requires_the_current_user_to_be_the_assigned_tester() =>
+        Assert.Equal(TaskAccessScope.TesterIsCurrentUser, UniversalTransitionRolePolicy.DefaultScope(ProjectRole.ReviewerTester));
 }

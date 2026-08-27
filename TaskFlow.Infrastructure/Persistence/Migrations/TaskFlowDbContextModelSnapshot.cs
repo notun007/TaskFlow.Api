@@ -1744,7 +1744,7 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                             FromStatus = "ReadyForTesting",
                             IsDeleted = false,
                             Role = "ReviewerTester",
-                            TaskScope = "PrimaryAssignedToCurrentUser",
+                            TaskScope = "TesterIsCurrentUser",
                             ToStatus = "InProgress"
                         },
                         new
@@ -1764,7 +1764,7 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                             FromStatus = "ReadyForTesting",
                             IsDeleted = false,
                             Role = "ReviewerTester",
-                            TaskScope = "PrimaryAssignedToCurrentUser",
+                            TaskScope = "TesterIsCurrentUser",
                             ToStatus = "Uat"
                         },
                         new
@@ -1784,7 +1784,7 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                             FromStatus = "ReadyForTesting",
                             IsDeleted = false,
                             Role = "ReviewerTester",
-                            TaskScope = "PrimaryAssignedToCurrentUser",
+                            TaskScope = "TesterIsCurrentUser",
                             ToStatus = "Reopened"
                         },
                         new
@@ -1804,7 +1804,7 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                             FromStatus = "Uat",
                             IsDeleted = false,
                             Role = "ReviewerTester",
-                            TaskScope = "PrimaryAssignedToCurrentUser",
+                            TaskScope = "TesterIsCurrentUser",
                             ToStatus = "InProgress"
                         },
                         new
@@ -1824,7 +1824,7 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                             FromStatus = "Uat",
                             IsDeleted = false,
                             Role = "ReviewerTester",
-                            TaskScope = "PrimaryAssignedToCurrentUser",
+                            TaskScope = "TesterIsCurrentUser",
                             ToStatus = "Resolved"
                         },
                         new
@@ -1844,7 +1844,7 @@ namespace TaskFlow.Infrastructure.Persistence.Migrations
                             FromStatus = "Uat",
                             IsDeleted = false,
                             Role = "ReviewerTester",
-                            TaskScope = "PrimaryAssignedToCurrentUser",
+                            TaskScope = "TesterIsCurrentUser",
                             ToStatus = "Reopened"
                         },
                         new

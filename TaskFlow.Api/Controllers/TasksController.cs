@@ -96,7 +96,23 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Requester, Team Lead, Product Owner, or Project Admin can change the task owner." });
         var ownerName = await ResolveOwnerName(request.ProjectId, request.OwnerUserId, cancellationToken);
         if (request.OwnerUserId.HasValue && ownerName is null) return BadRequest(new { message = "Owner must be an active member of the selected project." });
-        return (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", ownerName, cancellationToken)) is { } task ? Ok(task) : BadRequest(new { message = "Task data is invalid." });
+        TaskAssignmentUser? tester = null;
+        if (request.UpdateTesterAssignment)
+        {
+            var currentTesterUserId = await db.TaskAssignments.AsNoTracking()
+                .Where(x => x.TaskItemId == id && x.Responsibility == ResponsibilityType.Tester && !x.IsDeleted)
+                .Select(x => x.AssignedUserId).FirstOrDefaultAsync(cancellationToken);
+            if (currentTesterUserId != request.TesterUserId && !await CanManageAssignments(existing.ProjectId, identity.Value.Id, cancellationToken))
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only a Team Lead, Product Owner, or Project Admin can assign the Tester / Reviewer." });
+            if (request.TesterUserId.HasValue)
+            {
+                tester = await ResolveTester(existing.ProjectId, request.TesterUserId.Value, cancellationToken);
+                if (tester is null) return BadRequest(new { message = "Tester / Reviewer must be an active project member with the Reviewer / Tester role." });
+                if (await db.TaskAssignments.AnyAsync(x => x.TaskItemId == id && x.Responsibility == ResponsibilityType.Assignee && x.AssignedUserId == request.TesterUserId.Value && !x.IsDeleted, cancellationToken))
+                    return BadRequest(new { message = "The Team Member assignee and Tester / Reviewer must be different users." });
+            }
+        }
+        return (await service.UpdateAsync(id, request, User.Identity?.Name ?? "system", ownerName, tester, cancellationToken)) is { } task ? Ok(task) : BadRequest(new { message = "Task data is invalid." });
     }
 
     [HttpPatch("{id:guid}/status")]
@@ -149,6 +165,20 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
                 : await userManager.Users.AsNoTracking().FirstOrDefaultAsync(x => x.IsActive && x.Email == reference, cancellationToken);
             if (assignedUser is null || !await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == task.ProjectId && x.UserId == assignedUser.Id && !x.IsDeleted, cancellationToken))
                 return BadRequest(new { message = "Select an active user who has a role in this project." });
+            if (request.Responsibility == ResponsibilityType.Assignee &&
+                !await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == task.ProjectId && x.UserId == assignedUser.Id && x.Role == ProjectRole.TeamMember && !x.IsDeleted, cancellationToken))
+                return BadRequest(new { message = "The task assignee must have the Team Member role in this project." });
+            if (request.Responsibility == ResponsibilityType.Tester &&
+                !await db.ProjectRoleAssignments.AnyAsync(x => x.ProjectId == task.ProjectId && x.UserId == assignedUser.Id && x.Role == ProjectRole.ReviewerTester && !x.IsDeleted, cancellationToken))
+                return BadRequest(new { message = "The Tester / Reviewer must have the Reviewer / Tester role in this project." });
+            var conflictingResponsibility = request.Responsibility switch
+            {
+                ResponsibilityType.Assignee => ResponsibilityType.Tester,
+                ResponsibilityType.Tester => ResponsibilityType.Assignee,
+                _ => (ResponsibilityType?)null
+            };
+            if (conflictingResponsibility.HasValue && await db.TaskAssignments.AnyAsync(x => x.TaskItemId == id && x.Responsibility == conflictingResponsibility.Value && x.AssignedUserId == assignedUser.Id && !x.IsDeleted, cancellationToken))
+                return BadRequest(new { message = "The Team Member assignee and Tester / Reviewer must be different users." });
             request = request with { AssignedUserId = assignedUser.Id, PartyReference = assignedUser.Email!, DisplayName = string.IsNullOrWhiteSpace(assignedUser.DisplayName) ? assignedUser.Email : assignedUser.DisplayName };
         }
         var assignment = await service.AddAssignmentAsync(id, request, User.Identity?.Name ?? "system", cancellationToken);
@@ -228,6 +258,15 @@ public sealed class TasksController(ITaskService service, IApplicationDbContext 
         if (!isProjectMember) return null;
         var user = await userManager.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ownerUserId.Value && x.IsActive, cancellationToken);
         return user is null ? null : string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email : user.DisplayName;
+    }
+
+    private async Task<TaskAssignmentUser?> ResolveTester(Guid projectId, Guid testerUserId, CancellationToken cancellationToken)
+    {
+        var hasTesterRole = await db.ProjectRoleAssignments.AsNoTracking().AnyAsync(x => x.ProjectId == projectId && x.UserId == testerUserId && !x.IsDeleted && x.Role == ProjectRole.ReviewerTester, cancellationToken);
+        if (!hasTesterRole) return null;
+        var user = await userManager.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == testerUserId && x.IsActive, cancellationToken);
+        if (user is null || string.IsNullOrWhiteSpace(user.Email)) return null;
+        return new TaskAssignmentUser(user.Id, user.Email, string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email : user.DisplayName);
     }
 
     private async Task<bool> CanEditTask(TaskItem task, Guid userId, CancellationToken cancellationToken)
